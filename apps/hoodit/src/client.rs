@@ -260,7 +260,7 @@ impl HooditClient {
     }
 
     pub(crate) fn token_balance(&self, contract: &str, address: &str) -> Result<String, String> {
-        let calldata = format!("0x70a08231{:0>64}", &address[2..].to_ascii_lowercase());
+        let calldata = format!("0x70a08231{:0>64}", address[2..].to_ascii_lowercase());
         let request = self.http.post(ROBINHOOD_RPC_URL).json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
