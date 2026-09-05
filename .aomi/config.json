@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "platform": "hoodit",
+  "applications": [
+    "apps/hoodit/aomi.toml"
+  ]
+}
