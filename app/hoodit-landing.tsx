@@ -40,7 +40,7 @@ export function HooditLanding() {
       <div className="hero-zone">
       <header className="nav-shell">
         <a className="brand" href="#top" aria-label="Hoodit home">
-          <Image className="brand-mark" src="/logo-cat.jpg" alt="" width={512} height={512} />
+          <Image className="brand-mark" src="/hoodit-logo.jpg" alt="" width={512} height={512} />
           <span>HOODIT</span>
         </a>
         <nav className="nav-links" aria-label="Sections">
@@ -86,7 +86,7 @@ export function HooditLanding() {
               <div className="qr-sticker">
                 <div className="qr-code" role="img" aria-label="Hoodit Telegram invite QR code placeholder">
                   {qrPattern.join("").split("").map((cell, index) => <i key={index} className={cell === "1" ? "filled" : ""} />)}
-                  <span><Image src="/logo-cat.jpg" alt="" width={512} height={512} /></span>
+                  <span><Image src="/hoodit-logo.jpg" alt="" width={512} height={512} /></span>
                 </div>
                 <div className="qr-caption"><span>SCAN ME</span><b>TELEGRAM ↗</b></div>
               </div>
@@ -192,7 +192,7 @@ export function HooditLanding() {
           <article>
             <b className="flow-number">1</b>
             <div className="flow-copy"><h3>Scan</h3><p>Open Hoodit from the QR code and connect your Telegram identity.</p><small className="flow-note">SESSION CREATED IN SECONDS</small></div>
-            <div className="flow-visual scan-visual" aria-hidden="true"><i className="scan-ring scan-ring-outer" /><i className="scan-ring scan-ring-inner" /><Image className="scan-mark" src="/logo-cat.jpg" alt="" width={512} height={512} /><small className="scan-status">LINKED</small></div>
+            <div className="flow-visual scan-visual" aria-hidden="true"><i className="scan-ring scan-ring-outer" /><i className="scan-ring scan-ring-inner" /><Image className="scan-mark" src="/hoodit-logo.jpg" alt="" width={512} height={512} /><small className="scan-status">LINKED</small></div>
           </article>
           <article>
             <b className="flow-number">2</b>
@@ -231,7 +231,7 @@ export function HooditLanding() {
       </section>
 
       <footer className="footer section-shell">
-        <div className="brand footer-brand"><Image className="brand-mark" src="/logo-cat.jpg" alt="" width={512} height={512} /><span>HOODIT</span></div>
+        <div className="brand footer-brand"><Image className="brand-mark" src="/hoodit-logo.jpg" alt="" width={512} height={512} /><span>HOODIT</span></div>
         <p>Trade the idea. Keep the final say.</p>
         <p className="risk">Hoodit does not provide financial advice. Demo transactions are illustrative and require user review before execution.</p>
         <span>© 2026 HOODIT</span>

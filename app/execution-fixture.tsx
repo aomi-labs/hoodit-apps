@@ -148,7 +148,7 @@ export function ExecutionFixture() {
     <div className="execution-fixture" ref={rootRef}>
       <div className="fixture-topbar">
         <div className="widget-agent">
-          <Image className="agent-avatar" src="/logo-cat.jpg" alt="" width={512} height={512} />
+          <Image className="agent-avatar" src="/hoodit-logo.jpg" alt="" width={512} height={512} />
           <div><strong>Hoodit</strong><small>AI trading agent</small></div>
         </div>
         <span className="live-pill"><i /> LIVE DEMO</span>

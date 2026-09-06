@@ -25,7 +25,7 @@ export function HooditApp() {
     <main className="hoodit-app">
       <header className="app-bar">
         <Link className="brand" href="/" aria-label="Hoodit home">
-          <Image className="brand-mark" src="/logo-cat.jpg" alt="" width={512} height={512} />
+          <Image className="brand-mark" src="/hoodit-logo.jpg" alt="" width={512} height={512} />
           <span>HOODIT</span>
         </Link>
         <span className="app-chain"><i /> LIVE ON ROBINHOOD CHAIN</span>
