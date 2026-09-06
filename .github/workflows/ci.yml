@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  hoodit:
+  app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,8 +17,18 @@ jobs:
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  landing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
-          workspaces: apps/hoodit
-      - run: cargo fmt --manifest-path apps/hoodit/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path apps/hoodit/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path apps/hoodit/Cargo.toml
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

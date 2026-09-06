@@ -1,10 +1,9 @@
-use num_bigint::BigUint;
 use reqwest::StatusCode;
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
@@ -15,9 +14,6 @@ pub(crate) use crate::tool::*;
 
 pub(crate) const ROBINHOOD_CHAIN_ID: u64 = 4663;
 const ROBINHOOD_API_BASE: &str = "https://api.robinhood.com/rhj";
-const ROBINHOOD_RPC_URL: &str = "https://rpc.mainnet.chain.robinhood.com";
-const BLOCKSCOUT_PUBLIC_BASE: &str = "https://robinhoodchain.blockscout.com/api/v2";
-const BLOCKSCOUT_PRO_BASE: &str = "https://api.blockscout.com/4663/api/v2";
 const ASSETS_CACHE_TTL: Duration = Duration::from_secs(300);
 const QUOTES_CACHE_TTL: Duration = Duration::from_secs(15);
 const CORPORATE_ACTIONS_CACHE_TTL: Duration = Duration::from_secs(3600);
@@ -154,27 +150,13 @@ pub(crate) struct CorporateActionsResponse {
     pub(crate) corp_actions: Vec<CorporateAction>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct IndexedBalance {
-    pub(crate) contract_address: String,
-    pub(crate) raw_value: String,
-    pub(crate) decimals: Option<u32>,
-}
-
-#[derive(Debug)]
-pub(crate) struct IndexedBalances {
-    pub(crate) source: &'static str,
-    pub(crate) balances: Vec<IndexedBalance>,
-    pub(crate) fallback_reason: Option<String>,
-}
-
 impl HooditClient {
     pub(crate) fn new() -> Result<Self, String> {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("hoodit-app/0.1 (+https://github.com/aomi-labs/hoodit-apps)"),
+            HeaderValue::from_static("hoodit-app/0.2 (+https://github.com/aomi-labs/hoodit-apps)"),
         );
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(5))
@@ -228,22 +210,6 @@ impl HooditClient {
             .ok_or_else(|| format!("No Robinhood Stock Token matched ticker {symbol}"))
     }
 
-    pub(crate) fn quotes(&self) -> Result<Vec<Quote>, String> {
-        let quotes = self.get_robinhood::<QuotesResponse>("/prices")?.quotes;
-        let now = Instant::now();
-        let mut cache = QUOTES_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .map_err(cache_error)?;
-        for quote in &quotes {
-            cache.insert(
-                quote.token_symbol.to_ascii_uppercase(),
-                (now, quote.clone()),
-            );
-        }
-        Ok(quotes)
-    }
-
     pub(crate) fn corporate_actions(&self) -> Result<Vec<CorporateAction>, String> {
         let cache = CORPORATE_ACTIONS_CACHE.get_or_init(|| Mutex::new(None));
         if let Some((fetched_at, actions)) = cache.lock().map_err(cache_error)?.as_ref()
@@ -257,123 +223,6 @@ impl HooditClient {
             .corp_actions;
         *cache.lock().map_err(cache_error)? = Some((Instant::now(), actions.clone()));
         Ok(actions)
-    }
-
-    pub(crate) fn token_balance(&self, contract: &str, address: &str) -> Result<String, String> {
-        let calldata = format!("0x70a08231{:0>64}", address[2..].to_ascii_lowercase());
-        let request = self.http.post(ROBINHOOD_RPC_URL).json(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_call",
-            "params": [{ "to": contract, "data": calldata }, "latest"]
-        }));
-        let value = self.send_json(request, "Robinhood Chain RPC")?;
-        if let Some(error) = value.get("error") {
-            return Err(format!(
-                "Robinhood Chain RPC returned an error: {}",
-                concise_body(&error.to_string())
-            ));
-        }
-        let hex_value = value
-            .get("result")
-            .and_then(Value::as_str)
-            .and_then(|value| value.strip_prefix("0x"))
-            .ok_or_else(|| "Robinhood Chain RPC returned no token balance".to_string())?;
-        BigUint::parse_bytes(hex_value.as_bytes(), 16)
-            .map(|value| value.to_str_radix(10))
-            .ok_or_else(|| "Robinhood Chain RPC returned an invalid token balance".to_string())
-    }
-
-    pub(crate) fn indexed_balances(
-        &self,
-        address: &str,
-        alchemy_api_key: Option<&str>,
-        blockscout_api_key: Option<&str>,
-    ) -> Result<IndexedBalances, String> {
-        if let Some(api_key) = alchemy_api_key {
-            match self.alchemy_balances(address, api_key) {
-                Ok(balances) => {
-                    return Ok(IndexedBalances {
-                        source: "Alchemy Data API",
-                        balances,
-                        fallback_reason: None,
-                    });
-                }
-                Err(alchemy_error) => {
-                    return self
-                        .blockscout_balances(address, blockscout_api_key)
-                        .map(|balances| IndexedBalances {
-                            source: "Blockscout",
-                            balances,
-                            fallback_reason: Some(alchemy_error),
-                        });
-                }
-            }
-        }
-
-        self.blockscout_balances(address, blockscout_api_key)
-            .map(|balances| IndexedBalances {
-                source: "Blockscout",
-                balances,
-                fallback_reason: None,
-            })
-    }
-
-    fn alchemy_balances(
-        &self,
-        address: &str,
-        api_key: &str,
-    ) -> Result<Vec<IndexedBalance>, String> {
-        let request = self
-            .http
-            .post(format!(
-                "https://robinhood-mainnet.g.alchemy.com/v2/{api_key}"
-            ))
-            .json(&json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "alchemy_getTokenBalances",
-                "params": [address, "erc20"]
-            }));
-        let value = self.send_json(request, "Alchemy portfolio")?;
-        if let Some(error) = value.get("error") {
-            return Err(format!(
-                "Alchemy portfolio returned an RPC error: {}",
-                concise_body(&error.to_string())
-            ));
-        }
-        let balances = value
-            .pointer("/result/tokenBalances")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                "Alchemy portfolio response did not contain token balances".to_string()
-            })?;
-        Ok(balances.iter().filter_map(alchemy_balance).collect())
-    }
-
-    fn blockscout_balances(
-        &self,
-        address: &str,
-        blockscout_api_key: Option<&str>,
-    ) -> Result<Vec<IndexedBalance>, String> {
-        let mut request = if let Some(api_key) = blockscout_api_key {
-            self.http
-                .get(format!(
-                    "{BLOCKSCOUT_PRO_BASE}/addresses/{address}/token-balances"
-                ))
-                .query(&[("apikey", api_key)])
-        } else {
-            self.http.get(format!(
-                "{BLOCKSCOUT_PUBLIC_BASE}/addresses/{address}/token-balances"
-            ))
-        };
-        request = request.header(ACCEPT, "application/json");
-
-        let value = self.send_json(request, "Blockscout portfolio")?;
-        let balances = value
-            .as_array()
-            .ok_or_else(|| "Blockscout portfolio response was not an array".to_string())?;
-        Ok(balances.iter().filter_map(indexed_balance).collect())
     }
 
     fn get_robinhood<T>(&self, path: &str) -> Result<T, String>
@@ -403,9 +252,8 @@ impl HooditClient {
                     .headers()
                     .get("retry-after")
                     .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .unwrap_or(attempt + 1)
-                    .clamp(1, 2);
+                    .and_then(|value| value.parse::<u64>().ok());
+                let retry_after = retry_delay_seconds(retry_after, attempt);
                 thread::sleep(Duration::from_secs(retry_after));
                 continue;
             }
@@ -430,24 +278,6 @@ impl HooditClient {
     }
 }
 
-pub(crate) fn assets_by_contract(assets: &[Asset]) -> HashMap<String, &Asset> {
-    assets
-        .iter()
-        .filter_map(|asset| {
-            asset
-                .robinhood_chain_contract()
-                .map(|address| (address.to_ascii_lowercase(), asset))
-        })
-        .collect()
-}
-
-pub(crate) fn quotes_by_symbol(quotes: &[Quote]) -> HashMap<String, &Quote> {
-    quotes
-        .iter()
-        .map(|quote| (quote.token_symbol.to_ascii_uppercase(), quote))
-        .collect()
-}
-
 pub(crate) fn decimal_product(values: &[&str]) -> Option<String> {
     values
         .iter()
@@ -467,62 +297,23 @@ pub(crate) fn decimal_midpoint(bid: &str, ask: &str) -> Option<String> {
         .map(normalize_decimal)
 }
 
-pub(crate) fn format_units(raw: &str, decimals: u32) -> Option<String> {
-    if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+pub(crate) fn decimal_difference(high: &str, low: &str) -> Option<String> {
+    Decimal::from_str(high)
+        .ok()?
+        .checked_sub(Decimal::from_str(low).ok()?)
+        .map(normalize_decimal)
+}
+
+pub(crate) fn decimal_spread_bps(bid: &str, ask: &str) -> Option<String> {
+    let mid = Decimal::from_str(decimal_midpoint(bid, ask)?.as_str()).ok()?;
+    if mid.is_zero() {
         return None;
     }
-    let trimmed = raw.trim_start_matches('0');
-    let digits = if trimmed.is_empty() { "0" } else { trimmed };
-    if decimals == 0 {
-        return Some(digits.to_string());
-    }
-
-    let decimals = usize::try_from(decimals).ok()?;
-    let padded = if digits.len() <= decimals {
-        format!("{}{}", "0".repeat(decimals + 1 - digits.len()), digits)
-    } else {
-        digits.to_string()
-    };
-    let split = padded.len() - decimals;
-    let whole = &padded[..split];
-    let fraction = padded[split..].trim_end_matches('0');
-    Some(if fraction.is_empty() {
-        whole.to_string()
-    } else {
-        format!("{whole}.{fraction}")
-    })
-}
-
-fn indexed_balance(value: &Value) -> Option<IndexedBalance> {
-    let token = value.get("token")?;
-    let contract_address = token
-        .get("address_hash")
-        .or_else(|| token.get("address"))?
-        .as_str()?
-        .to_string();
-    let raw_value = value.get("value")?.as_str()?.to_string();
-    let decimals = token.get("decimals").and_then(|value| {
-        value
-            .as_u64()
-            .or_else(|| value.as_str()?.parse::<u64>().ok())
-            .and_then(|value| u32::try_from(value).ok())
-    });
-    Some(IndexedBalance {
-        contract_address,
-        raw_value,
-        decimals,
-    })
-}
-
-fn alchemy_balance(value: &Value) -> Option<IndexedBalance> {
-    let contract_address = value.get("contractAddress")?.as_str()?.to_string();
-    let hex_value = value.get("tokenBalance")?.as_str()?.strip_prefix("0x")?;
-    let raw_value = BigUint::parse_bytes(hex_value.as_bytes(), 16)?.to_str_radix(10);
-    Some(IndexedBalance {
-        contract_address,
-        raw_value,
-        decimals: None,
-    })
+    Decimal::from_str(decimal_difference(ask, bid)?.as_str())
+        .ok()?
+        .checked_div(mid)?
+        .checked_mul(Decimal::from(10_000))
+        .map(normalize_decimal)
 }
 
 fn normalize_decimal(value: Decimal) -> String {
@@ -542,6 +333,10 @@ fn concise_body(body: &str) -> String {
     format!("{}…", body.chars().take(MAX_CHARS).collect::<String>())
 }
 
+fn retry_delay_seconds(retry_after: Option<u64>, attempt: u64) -> u64 {
+    retry_after.unwrap_or(attempt + 1).clamp(1, 2)
+}
+
 fn cache_error<T>(_error: std::sync::PoisonError<T>) -> String {
     "Hoodit response cache is unavailable".to_string()
 }
@@ -549,53 +344,28 @@ fn cache_error<T>(_error: std::sync::PoisonError<T>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn formats_large_erc20_values_without_float_loss() {
-        assert_eq!(
-            format_units("1234500000000000000", 18).as_deref(),
-            Some("1.2345")
-        );
-        assert_eq!(
-            format_units("42", 18).as_deref(),
-            Some("0.000000000000000042")
-        );
-        assert_eq!(format_units("000", 18).as_deref(), Some("0"));
-        assert_eq!(format_units("not-a-number", 18), None);
-    }
-
-    #[test]
-    fn applies_multiplier_to_reference_price() {
+    fn derives_reference_price_and_spread_without_float_loss() {
         assert_eq!(
             decimal_product(&["320.10", "0.25"]).as_deref(),
             Some("80.025")
         );
         assert_eq!(decimal_midpoint("300", "320.1").as_deref(), Some("310.05"));
+        assert_eq!(decimal_difference("101", "99").as_deref(), Some("2"));
+        assert_eq!(decimal_spread_bps("99", "101").as_deref(), Some("200"));
+        assert_eq!(decimal_spread_bps("0", "0"), None);
     }
 
     #[test]
-    fn reads_blockscout_balance_shape() {
-        let value = json!({
-            "token": {
-                "address_hash": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
-                "decimals": "18"
-            },
-            "value": "1500000000000000000"
-        });
-        let balance = indexed_balance(&value).expect("valid balance");
-        assert_eq!(balance.decimals, Some(18));
-        assert_eq!(balance.raw_value, "1500000000000000000");
-    }
+    fn bounds_retry_delays_and_upstream_error_bodies() {
+        assert_eq!(retry_delay_seconds(Some(30), 0), 2);
+        assert_eq!(retry_delay_seconds(Some(0), 0), 1);
+        assert_eq!(retry_delay_seconds(None, 1), 2);
 
-    #[test]
-    fn reads_alchemy_balance_shape() {
-        let value = json!({
-            "contractAddress": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
-            "tokenBalance": "0x14d1120d7b160000"
-        });
-        let balance = alchemy_balance(&value).expect("valid balance");
-        assert_eq!(balance.decimals, None);
-        assert_eq!(balance.raw_value, "1500000000000000000");
+        let error = concise_body(&format!("{} secret-tail", "word ".repeat(80)));
+        assert!(error.chars().count() <= 241);
+        assert!(error.ends_with('…'));
+        assert!(!error.contains("secret-tail"));
     }
 }

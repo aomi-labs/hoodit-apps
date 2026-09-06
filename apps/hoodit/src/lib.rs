@@ -3,18 +3,6 @@ use aomi_sdk::*;
 mod client;
 mod tool;
 
-const BLOCKSCOUT_API_KEY: Secret = Secret::new(
-    "BLOCKSCOUT_API_KEY",
-    "Optional Blockscout API key for reliable indexed Robinhood Chain portfolio reads.",
-    false,
-);
-
-const ALCHEMY_API_KEY: Secret = Secret::new(
-    "ALCHEMY_API_KEY",
-    "Optional Alchemy key with Robinhood Chain enabled for indexed portfolio reads.",
-    false,
-);
-
 const PREAMBLE: &str = r#"You are Hoodit, a Robinhood Stock Token trading bot running in Telegram.
 
 ## Response style
@@ -24,19 +12,22 @@ const PREAMBLE: &str = r#"You are Hoodit, a Robinhood Stock Token trading bot ru
 
 ## Data tools
 - `hoodit_search_stock_tokens`: find live Robinhood Stock Tokens and canonical chain-4663 contracts.
-- `hoodit_get_stock_snapshot`: get the underlying bid/ask, corporate-action multiplier, token-adjusted reference, trading halt, and recent corporate actions.
+- `hoodit_get_stock_snapshot`: get the underlying bid/ask, midpoint and spread, corporate-action multiplier, token-adjusted reference, trading halt, and recent corporate actions.
 - `hoodit_get_corporate_actions`: inspect recent or pending splits, dividends, and other adjustments.
-- `hoodit_get_stock_position`: read one Stock Token balance directly from Robinhood Chain and value it with the current reference.
-- `hoodit_get_stock_portfolio`: value canonical Stock Tokens held by the connected EVM wallet or an explicit address.
 - Use `brave_search` only when the user asks for news, catalysts, filings, or broader market context. Cite links and separate facts from inference.
 
+## Portfolio workflow
+1. Call `activate_skills` with `robinhood_stocks` before any position or portfolio read.
+2. Use `get_robinhood_stock_position` for one canonical Stock Token and `get_robinhood_stock_portfolio` for the wallet's full Stock Token portfolio.
+3. These tools read the connected Robinhood Chain wallet, not a Robinhood brokerage account. Never invent cost basis or profit/loss.
+
 ## Trading workflow
-1. For every buy or sell, call `hoodit_get_stock_snapshot` first. If the user supplied a company name instead of an unambiguous ticker, call `hoodit_search_stock_tokens` first. Before a sell, call `hoodit_get_stock_position`; before a buy, use it when current exposure matters.
+1. For every buy or sell, call `hoodit_get_stock_snapshot` first. If the user supplied a company name instead of an unambiguous ticker, call `hoodit_search_stock_tokens` first. Before a sell, call `get_robinhood_stock_position`; before a buy, use it when current exposure matters.
 2. Call `activate_skills` with `robinhood_stocks` and `lifi_swap` together.
 3. Require the connected wallet to be on Robinhood Chain mainnet, chain `4663`. A backend sync is not a wallet network switch.
 4. Resolve the canonical stock-token contract with `resolve_robinhood_stock_token`; never treat an address supplied by the user as canonical.
 5. Use `lifi_prepare_swap_batch` for the executable quote and preflight. For buys, spend the user's exact quote asset and amount. For sells, spend the exact stock-token amount.
-6. If preflight passes, stage the returned drafts unchanged and follow the host confirmation policy. Do not add a redundant confirmation. Never alter a router, spender, recipient, calldata, or `lifi-draft://` reference.
+6. If preflight passes, stage every returned draft unchanged with `evm_stage_tx`, then follow the host confirmation policy with `evm_commit_txs`. Do not add a redundant conversational confirmation. Never alter a router, spender, recipient, calldata, or `lifi-draft://` reference.
 7. Report the wallet result or transaction receipt. Never claim execution before the host confirms it.
 
 ## Trade review
@@ -58,16 +49,13 @@ Stop when the asset is halted, the official quote is unavailable or stale, the w
 dyn_aomi_app!(
     app = client::HooditApp,
     name = "hoodit",
-    version = "0.1.0",
+    version = "0.2.0",
     preamble = PREAMBLE,
     tools = [
         client::SearchStockTokens,
         client::GetStockSnapshot,
         client::GetCorporateActions,
-        client::GetStockPosition,
-        client::GetStockPortfolio,
     ],
-    secrets = [ALCHEMY_API_KEY, BLOCKSCOUT_API_KEY],
     namespaces = ["aomi-core", "evm-core"]
 );
 
@@ -104,6 +92,7 @@ mod tests {
     fn manifest_is_host_compatible() {
         let manifest = client::HooditApp.manifest();
         assert_eq!(manifest.name, "hoodit");
+        assert_eq!(manifest.version, "0.2.0");
         assert_eq!(manifest.sdk_version, "4.0.0");
         assert_eq!(
             manifest.namespaces,
@@ -111,6 +100,8 @@ mod tests {
         );
         assert!(manifest.preamble.contains("running in Telegram"));
         assert!(manifest.preamble.contains("lifi_prepare_swap_batch"));
+        assert!(manifest.preamble.contains("get_robinhood_stock_portfolio"));
+        assert!(manifest.secrets.is_none());
 
         let names = manifest
             .tools
@@ -123,13 +114,17 @@ mod tests {
                 "hoodit_search_stock_tokens",
                 "hoodit_get_stock_snapshot",
                 "hoodit_get_corporate_actions",
-                "hoodit_get_stock_position",
-                "hoodit_get_stock_portfolio",
             ])
         );
 
         for tool in &manifest.tools {
             assert_object_schemas_have_properties(&tool.parameters_schema);
+            assert_eq!(
+                tool.parameters_schema.get("additionalProperties"),
+                Some(&Value::Bool(false)),
+                "{} must reject unknown arguments",
+                tool.name
+            );
         }
     }
 }

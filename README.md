@@ -1,44 +1,45 @@
-# hoodit-apps
+# Hoodit
 
-Robinhood-focused Aomi applications. The repository is intentionally plural so
-future products, such as a separately permissioned copy-trading app, can live
-beside the first application without expanding its trust boundary.
+Hoodit is a Telegram-first trading assistant for Robinhood Stock Tokens on Robinhood Chain. This repository contains both the public landing page and the hosted Aomi application.
 
-## Applications
+## Repository layout
 
-| App | Status | Purpose |
-|---|---|---|
-| `hoodit` | implemented | Research, inspect portfolios, and trade canonical Robinhood Stock Tokens on Robinhood Chain |
+- `app/` and `public/` — Next.js landing page and product UI
+- `apps/hoodit/` — Rust dynamic application loaded by Aomi
+- `.aomi/config.json` — Aomi Project manifest used by Build's community repository import
+- `Cargo.toml` — shared Rust workspace and backend-compatible Aomi SDK pin
 
-`hoodit` combines Robinhood's public Stock Token API with indexed Robinhood
-Chain balances. It delegates transaction construction, simulation, and wallet
-execution to Aomi's built-in `robinhood_stocks` and `lifi_swap` skills.
+The repository remains plural so future products, such as a separately permissioned copy-trading app, can live beside Hoodit without expanding its trust boundary.
 
-## Data sources
+## Landing page
 
-- Robinhood Stock Token API: asset metadata, prices, and corporate actions
-- Robinhood Chain RPC: direct per-token wallet balances
-- Alchemy Data API or Blockscout: indexed Robinhood Chain token balances
-- Aomi host tools: current news, connected-wallet context, canonical token
-  resolution, LI.FI quotes, simulation, and signing
+Requires Node.js 22.13 or newer.
 
-Robinhood's public data endpoints need no credential. For portfolio reads,
-`ALCHEMY_API_KEY` is preferred and must belong to an Alchemy app with Robinhood
-Chain enabled. `BLOCKSCOUT_API_KEY` is an optional fallback; without either,
-the app uses the public Robinhood Chain explorer endpoint.
-
-## Local development
-
-```sh
-cargo test --manifest-path apps/hoodit/Cargo.toml
-cargo fmt --manifest-path apps/hoodit/Cargo.toml -- --check
-cargo clippy --manifest-path apps/hoodit/Cargo.toml --all-targets -- -D warnings
+```bash
+npm ci
+npm run dev
 ```
 
-The real-model end-to-end spec lives at `apps/hoodit/test.json`. After building
-the plugin, run it from `product-mono/aomi`:
+Use `npm run lint` and `npm run build` before publishing frontend changes.
 
-```sh
-AOMI_E2E_APP_PATH="$PWD/../../hoodit-apps/apps/hoodit/target/debug/libhoodit.dylib" \
-  cargo test -p aomi-runtime --test local-app-e2e app_e2e_specs -- --nocapture
+## Aomi application
+
+The workspace pins `aomi-sdk = "=4.0.0"`, matching the Aomi backend runtime. The Hoodit app itself declares no API-key secrets; market data is public and wallet indexing stays backend-owned.
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+aomi-build sdk check --path . --required-version 4.0.0
 ```
+
+The deterministic application scenario lives at `apps/hoodit/test.json`.
+
+## Connect to Aomi Build
+
+In **Deployments → New app → Connect an existing repository**, enter:
+
+```text
+aomi-labs/hoodit-apps
+```
+
+The root Project manifest selects the `community` platform and publishes `apps/hoodit/aomi.toml`. Commit and push changes before importing so Build can read the same revision.

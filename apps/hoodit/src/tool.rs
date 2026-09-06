@@ -1,15 +1,13 @@
 use crate::client::*;
 use aomi_sdk::schemars::JsonSchema;
 use aomi_sdk::*;
-use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::cmp::Ordering;
-use std::str::FromStr;
 
 pub(crate) struct SearchStockTokens;
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SearchStockTokensArgs {
     /// Ticker, company name, token name, or ISIN. An empty query lists active assets.
     query: String,
@@ -28,20 +26,12 @@ impl DynAomiTool for SearchStockTokens {
     const DESCRIPTION: &'static str = "Search Robinhood's live Stock Token catalog by ticker, company, token name, or ISIN. Use this before trading when the user's symbol is missing or ambiguous; returns canonical Robinhood Chain contracts but does not prepare a transaction.";
 
     fn run(_app: &HooditApp, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
-        let mut assets = HooditClient::new()?
-            .assets()?
-            .into_iter()
-            .filter(|asset| !args.active_only.unwrap_or(true) || asset.is_active())
-            .filter(|asset| asset.matches(&args.query))
-            .filter(|asset| asset.robinhood_chain_contract().is_some())
-            .collect::<Vec<_>>();
-
-        assets.sort_by(|left, right| {
-            asset_rank(left, &args.query).cmp(&asset_rank(right, &args.query))
-        });
-        let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        assets.truncate(limit);
-
+        let assets = select_assets(
+            HooditClient::new()?.assets()?,
+            &args.query,
+            args.active_only.unwrap_or(true),
+            args.limit.unwrap_or(10),
+        );
         let assets = assets.iter().map(asset_json).collect::<Vec<_>>();
         Ok(json!({
             "source": "Robinhood Stock Token API /rhj/assets",
@@ -56,6 +46,7 @@ impl DynAomiTool for SearchStockTokens {
 pub(crate) struct GetStockSnapshot;
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GetStockSnapshotArgs {
     /// Exact Stock Token ticker, for example AAPL or NVDA. Search first when ambiguous.
     symbol: String,
@@ -81,6 +72,8 @@ impl DynAomiTool for GetStockSnapshot {
             .collect::<Vec<_>>();
 
         let underlying_mid = decimal_midpoint(&quote.bid, &quote.ask);
+        let underlying_spread = decimal_difference(&quote.ask, &quote.bid);
+        let underlying_spread_bps = decimal_spread_bps(&quote.bid, &quote.ask);
         let token_bid = decimal_product(&[&quote.bid, &asset.current_multiplier]);
         let token_ask = decimal_product(&[&quote.ask, &asset.current_multiplier]);
         let token_mid = underlying_mid
@@ -103,6 +96,10 @@ impl DynAomiTool for GetStockSnapshot {
             "chain_id": ROBINHOOD_CHAIN_ID,
             "asset": asset_json(&asset),
             "underlying_market": quote_json(&quote),
+            "underlying_spread": {
+                "absolute": underlying_spread,
+                "basis_points_at_mid": underlying_spread_bps,
+            },
             "token_reference": {
                 "method": "raw underlying price multiplied by current_multiplier",
                 "currency": quote.currency,
@@ -119,75 +116,10 @@ impl DynAomiTool for GetStockSnapshot {
     }
 }
 
-pub(crate) struct GetStockPosition;
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub(crate) struct GetStockPositionArgs {
-    /// Exact Stock Token ticker, for example AAPL or NVDA.
-    symbol: String,
-    /// Optional EVM address. Omit to use the connected wallet.
-    #[serde(default)]
-    address: Option<String>,
-}
-
-impl DynAomiTool for GetStockPosition {
-    type App = HooditApp;
-    type Args = GetStockPositionArgs;
-    const NAME: &'static str = "hoodit_get_stock_position";
-    const DESCRIPTION: &'static str = "Read one canonical Robinhood Stock Token balance directly from Robinhood Chain and value it with Robinhood's current multiplier-adjusted reference. Use before selling, or when checking current exposure, without requiring an indexer.";
-
-    fn run(_app: &HooditApp, args: Self::Args, ctx: DynToolCallCtx) -> Result<Value, String> {
-        let symbol = normalize_symbol(&args.symbol)?;
-        let address = args
-            .address
-            .or_else(|| ctx.attribute_string(&["domain", "evm", "address"]))
-            .ok_or_else(|| {
-                "Connect an EVM wallet or provide an address to view a position".to_string()
-            })?;
-        validate_evm_address(&address)?;
-
-        let client = HooditClient::new()?;
-        let asset = client.asset(&symbol)?;
-        let contract = asset
-            .robinhood_chain_contract()
-            .ok_or_else(|| format!("{symbol} has no Robinhood Chain deployment"))?;
-        let quote = client.quote(&symbol)?;
-        let raw_balance = client.token_balance(contract, &address)?;
-        let token_amount = format_units(&raw_balance, asset.token_decimals)
-            .ok_or_else(|| "Could not format the onchain token balance".to_string())?;
-        let underlying_mid = decimal_midpoint(&quote.bid, &quote.ask);
-        let token_reference_mid = underlying_mid
-            .as_deref()
-            .and_then(|mid| decimal_product(&[mid, &asset.current_multiplier]));
-        let reference_value_usd = token_reference_mid
-            .as_deref()
-            .and_then(|mid| decimal_product(&[&token_amount, mid]));
-
-        Ok(json!({
-            "sources": ["Robinhood Chain eth_call balanceOf", "Robinhood Stock Token API /rhj/assets and /rhj/prices"],
-            "address": address,
-            "chain_id": ROBINHOOD_CHAIN_ID,
-            "connected_wallet_chain_id": ctx.attribute_u64(&["domain", "evm", "chain_id"]),
-            "symbol": asset.token_symbol,
-            "name": asset.token_name,
-            "contract_address": contract,
-            "raw_balance": raw_balance,
-            "token_decimals": asset.token_decimals,
-            "token_amount": token_amount,
-            "current_multiplier": asset.current_multiplier,
-            "underlying_shares_equivalent": decimal_product(&[&token_amount, &asset.current_multiplier]),
-            "reference_mid_usd_per_token": token_reference_mid,
-            "reference_value_usd": reference_value_usd,
-            "price_generated_at": quote.generated_at,
-            "is_trading_halt": quote.is_trading_halt,
-            "valuation_note": "Reference value is not an executable quote and includes no cost basis or P/L."
-        }))
-    }
-}
-
 pub(crate) struct GetCorporateActions;
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GetCorporateActionsArgs {
     /// Optional Stock Token ticker. Omit to list actions across all supported assets.
     #[serde(default)]
@@ -209,21 +141,15 @@ impl DynAomiTool for GetCorporateActions {
     fn run(_app: &HooditApp, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
         let symbol = args.symbol.as_deref().map(normalize_symbol).transpose()?;
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let actions = HooditClient::new()?
-            .corporate_actions()?
-            .into_iter()
-            .filter(|action| {
-                symbol
-                    .as_deref()
-                    .is_none_or(|symbol| action.token_symbol.eq_ignore_ascii_case(symbol))
-            })
-            .filter(|action| {
-                !args.in_progress_only.unwrap_or(false)
-                    || action.status == "CORPORATE_ACTION_STATUS_IN_PROGRESS"
-            })
-            .take(limit)
-            .map(corporate_action_json)
-            .collect::<Vec<_>>();
+        let actions = select_corporate_actions(
+            HooditClient::new()?.corporate_actions()?,
+            symbol.as_deref(),
+            args.in_progress_only.unwrap_or(false),
+            limit,
+        )
+        .into_iter()
+        .map(corporate_action_json)
+        .collect::<Vec<_>>();
 
         Ok(json!({
             "source": "Robinhood Stock Token API /rhj/corporate-actions",
@@ -234,116 +160,34 @@ impl DynAomiTool for GetCorporateActions {
     }
 }
 
-pub(crate) struct GetStockPortfolio;
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub(crate) struct GetStockPortfolioArgs {
-    /// Optional EVM address. Omit to use the connected wallet.
-    #[serde(default)]
-    address: Option<String>,
-    /// Maximum Stock Token positions to return. Defaults to 50 and is capped at 100.
-    #[serde(default)]
-    limit: Option<usize>,
+fn select_assets(assets: Vec<Asset>, query: &str, active_only: bool, limit: usize) -> Vec<Asset> {
+    let mut assets = assets
+        .into_iter()
+        .filter(|asset| !active_only || asset.is_active())
+        .filter(|asset| asset.matches(query))
+        .filter(|asset| asset.robinhood_chain_contract().is_some())
+        .collect::<Vec<_>>();
+    assets.sort_by_key(|asset| asset_rank(asset, query));
+    assets.truncate(limit.clamp(1, 50));
+    assets
 }
 
-impl DynAomiTool for GetStockPortfolio {
-    type App = HooditApp;
-    type Args = GetStockPortfolioArgs;
-    const NAME: &'static str = "hoodit_get_stock_portfolio";
-    const DESCRIPTION: &'static str = "Read canonical Robinhood Stock Token positions for an EVM address from Blockscout and value them with Robinhood's current multiplier-adjusted reference prices. Omit address to use the connected wallet. This is onchain wallet data, not a Robinhood brokerage portfolio.";
-
-    fn run(_app: &HooditApp, args: Self::Args, ctx: DynToolCallCtx) -> Result<Value, String> {
-        let address = args
-            .address
-            .or_else(|| ctx.attribute_string(&["domain", "evm", "address"]))
-            .ok_or_else(|| {
-                "Connect an EVM wallet or provide an address to view a portfolio".to_string()
-            })?;
-        validate_evm_address(&address)?;
-
-        let client = HooditClient::new()?;
-        let alchemy_api_key = ctx
-            .secrets
-            .get("ALCHEMY_API_KEY")
-            .cloned()
-            .or_else(|| std::env::var("ALCHEMY_API_KEY").ok());
-        let blockscout_api_key = ctx
-            .secrets
-            .get("BLOCKSCOUT_API_KEY")
-            .cloned()
-            .or_else(|| std::env::var("BLOCKSCOUT_API_KEY").ok());
-        let assets = client.assets()?;
-        let quotes = client.quotes()?;
-        let indexed = client.indexed_balances(
-            &address,
-            alchemy_api_key.as_deref(),
-            blockscout_api_key.as_deref(),
-        )?;
-        let assets_by_contract = assets_by_contract(&assets);
-        let quotes_by_symbol = quotes_by_symbol(&quotes);
-
-        let mut positions = indexed
-            .balances
-            .into_iter()
-            .filter_map(|balance| {
-                let asset = assets_by_contract.get(&balance.contract_address.to_ascii_lowercase())?;
-                let decimals = balance.decimals.unwrap_or(asset.token_decimals);
-                let token_amount = format_units(&balance.raw_value, decimals)?;
-                if token_amount == "0" {
-                    return None;
-                }
-                let quote = quotes_by_symbol.get(&asset.token_symbol.to_ascii_uppercase());
-                let underlying_mid = quote.and_then(|quote| decimal_midpoint(&quote.bid, &quote.ask));
-                let token_reference_mid = underlying_mid
-                    .as_deref()
-                    .and_then(|mid| decimal_product(&[mid, &asset.current_multiplier]));
-                let reference_value = token_reference_mid
-                    .as_deref()
-                    .and_then(|mid| decimal_product(&[&token_amount, mid]));
-                Some(json!({
-                    "symbol": asset.token_symbol,
-                    "name": asset.token_name,
-                    "contract_address": asset.robinhood_chain_contract(),
-                    "token_amount": token_amount,
-                    "raw_balance": balance.raw_value,
-                    "token_decimals": decimals,
-                    "current_multiplier": asset.current_multiplier,
-                    "underlying_shares_equivalent": decimal_product(&[&token_amount, &asset.current_multiplier]),
-                    "reference_mid_usd_per_token": token_reference_mid,
-                    "reference_value_usd": reference_value,
-                    "price_generated_at": quote.map(|quote| quote.generated_at.as_str()),
-                    "is_trading_halt": quote.map(|quote| quote.is_trading_halt),
-                }))
-            })
-            .collect::<Vec<_>>();
-
-        positions.sort_by(|left, right| {
-            let left = json_decimal(left.get("reference_value_usd"));
-            let right = json_decimal(right.get("reference_value_usd"));
-            right.partial_cmp(&left).unwrap_or(Ordering::Equal)
-        });
-        positions.truncate(args.limit.unwrap_or(50).clamp(1, 100));
-
-        let reference_value_usd = positions
-            .iter()
-            .filter_map(|position| json_decimal(position.get("reference_value_usd")))
-            .fold(Decimal::ZERO, |total, value| total + value)
-            .normalize()
-            .to_string();
-        let connected_chain_id = ctx.attribute_u64(&["domain", "evm", "chain_id"]);
-
-        Ok(json!({
-            "sources": [format!("{} Robinhood Chain token balances", indexed.source), "Robinhood Stock Token API /rhj/assets and /rhj/prices"],
-            "indexer_fallback_reason": indexed.fallback_reason,
-            "address": address,
-            "chain_id": ROBINHOOD_CHAIN_ID,
-            "connected_wallet_chain_id": connected_chain_id,
-            "position_count": positions.len(),
-            "reference_value_usd": reference_value_usd,
-            "positions": positions,
-            "valuation_note": "Reference values use Robinhood's raw underlying midpoint multiplied by current_multiplier; they are not executable quotes and include no cost basis or P/L."
-        }))
-    }
+fn select_corporate_actions(
+    actions: Vec<CorporateAction>,
+    symbol: Option<&str>,
+    in_progress_only: bool,
+    limit: usize,
+) -> Vec<CorporateAction> {
+    actions
+        .into_iter()
+        .filter(|action| {
+            symbol.is_none_or(|symbol| action.token_symbol.eq_ignore_ascii_case(symbol))
+        })
+        .filter(|action| {
+            !in_progress_only || action.status == "CORPORATE_ACTION_STATUS_IN_PROGRESS"
+        })
+        .take(limit.clamp(1, 50))
+        .collect()
 }
 
 fn asset_rank(asset: &Asset, query: &str) -> u8 {
@@ -431,32 +275,101 @@ fn normalize_symbol(symbol: &str) -> Result<String, String> {
     Ok(symbol)
 }
 
-fn validate_evm_address(address: &str) -> Result<(), String> {
-    if address.len() == 42
-        && address.starts_with("0x")
-        && address[2..].bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        Ok(())
-    } else {
-        Err("Provide a valid 0x-prefixed EVM address".to_string())
-    }
-}
-
-fn json_decimal(value: Option<&Value>) -> Option<Decimal> {
-    value?
-        .as_str()
-        .and_then(|value| Decimal::from_str(value).ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn asset(symbol: &str, name: &str, status: &str, chain_id: u64) -> Asset {
+        Asset {
+            id: symbol.into(),
+            token_symbol: symbol.into(),
+            token_name: name.into(),
+            deployments: vec![Deployment {
+                contract_address: format!("0x{symbol:0>40}"),
+                chain_id,
+                network_name: None,
+            }],
+            current_multiplier: "1".into(),
+            pending_multiplier: String::new(),
+            pending_multiplier_effective_time: None,
+            status: status.into(),
+            logo_url: None,
+            trading_capabilities: None,
+            token_decimals: 18,
+            isin: None,
+        }
+    }
+
+    fn action(symbol: &str, status: &str) -> CorporateAction {
+        CorporateAction {
+            id: format!("{symbol}-{status}"),
+            action_type: "CORPORATE_ACTION_TYPE_SPLIT".into(),
+            status: status.into(),
+            process_date: None,
+            token_symbol: symbol.into(),
+            deployments: Vec::new(),
+            details: Value::Null,
+        }
+    }
+
     #[test]
-    fn validates_symbols_and_addresses() {
+    fn validates_stock_symbol_inputs() {
         assert_eq!(normalize_symbol(" aapl ").as_deref(), Ok("AAPL"));
         assert!(normalize_symbol("AAPL/USD").is_err());
-        assert!(validate_evm_address("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045").is_ok());
-        assert!(validate_evm_address("vitalik.eth").is_err());
+    }
+
+    #[test]
+    fn catalog_search_filters_sorts_and_limits() {
+        let selected = select_assets(
+            vec![
+                asset(
+                    "AAPD",
+                    "Apple Daily Stock Token",
+                    "ASSET_STATUS_ACTIVE",
+                    4663,
+                ),
+                asset(
+                    "AAPL",
+                    "Apple • Robinhood Token",
+                    "ASSET_STATUS_ACTIVE",
+                    4663,
+                ),
+                asset(
+                    "OLD",
+                    "Apple Old Stock Token",
+                    "ASSET_STATUS_INACTIVE",
+                    4663,
+                ),
+                asset(
+                    "OFF",
+                    "Apple Offchain Stock Token",
+                    "ASSET_STATUS_ACTIVE",
+                    1,
+                ),
+            ],
+            "Apple",
+            true,
+            1,
+        );
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].token_symbol, "AAPL");
+    }
+
+    #[test]
+    fn corporate_actions_filter_by_symbol_status_and_limit() {
+        let selected = select_corporate_actions(
+            vec![
+                action("AAPL", "CORPORATE_ACTION_STATUS_COMPLETE"),
+                action("NVDA", "CORPORATE_ACTION_STATUS_IN_PROGRESS"),
+                action("AAPL", "CORPORATE_ACTION_STATUS_IN_PROGRESS"),
+                action("AAPL", "CORPORATE_ACTION_STATUS_IN_PROGRESS"),
+            ],
+            Some("AAPL"),
+            true,
+            1,
+        );
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].token_symbol, "AAPL");
+        assert_eq!(selected[0].status, "CORPORATE_ACTION_STATUS_IN_PROGRESS");
     }
 }

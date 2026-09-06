@@ -1,0 +1,90 @@
+/* ---------- Hoodit theme for the Aomi widget ----------
+   The widget reads shadcn-style tokens plus its own --aomi-* set from :root.
+   Everything here is scoped to .hoodit-app so the landing page is untouched. */
+.hoodit-app {
+  --font-geist-sans: var(--font-body);
+  --font-geist-mono: var(--font-mono);
+  --aomi-font-wordmark: var(--font-display);
+  --radius: 10px;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: #fbf6ea;
+  --card-foreground: var(--ink);
+  --popover: #fbf6ea;
+  --popover-foreground: var(--ink);
+  --primary: var(--cobalt);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--mint);
+  --accent-foreground: var(--ink);
+  --destructive: #c8434f;
+  --border: rgba(21, 22, 28, .28);
+  --input: rgba(21, 22, 28, .28);
+  --ring: var(--cobalt);
+  --sidebar: var(--paper-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--cobalt);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: var(--mint);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: rgba(21, 22, 28, .22);
+  --sidebar-ring: var(--cobalt);
+
+  --aomi-bg: var(--paper);
+  --aomi-surface: #fbf6ea;
+  --aomi-surface-2: var(--paper-2);
+  --aomi-raised: #fff9ec;
+  --aomi-border: rgba(21, 22, 28, .28);
+  --aomi-fg: var(--ink);
+  --aomi-muted: var(--ink-soft);
+  --aomi-accent: var(--cobalt);
+  --aomi-accent-strong: var(--cobalt-2);
+  --aomi-accent-subtle: #dfe6fa;
+  --aomi-on-accent: var(--paper);
+  --aomi-hover: var(--paper-2);
+  --aomi-pink: var(--blush);
+  --aomi-success: var(--green);
+  --aomi-warning: var(--mustard);
+  --aomi-danger: #c8434f;
+  --aomi-danger-strong: #a83542;
+  --aomi-on-danger: var(--paper);
+  --aomi-info: var(--cobalt);
+}
+
+/* ---------- page chrome ---------- */
+.hoodit-app { min-height: 100dvh; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
+.app-bar { width: min(1240px, calc(100% - 48px)); margin: 0 auto; height: 76px; display: flex; align-items: center; gap: 22px; border-bottom: 3px solid var(--ink); }
+.app-chain { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 2px solid var(--ink); border-radius: var(--sketch-2); background: var(--green); color: var(--paper); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: .12em; transform: rotate(-1deg); }
+.app-chain i { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); border: 2px solid var(--ink); animation: pulse 1.8s infinite; }
+.app-back { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; border-bottom: 3px solid var(--salmon); padding-bottom: 2px; }
+.app-frame { width: min(1240px, calc(100% - 48px)); flex: 1; margin: 22px auto 18px; min-height: 0; height: calc(100dvh - 76px - 40px - 44px - 18px); background: #fbf6ea; border: 3px solid var(--ink); border-radius: 10px; box-shadow: 10px 10px 0 var(--ink); overflow: hidden; position: relative; }
+.app-frame > * { height: 100%; }
+.app-loading { display: grid; place-items: center; height: 100%; color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.app-foot { width: min(1240px, calc(100% - 48px)); height: 44px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; color: var(--ink-soft); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: .12em; }
+.app-foot b { color: var(--ink); }
+.app-foot span { display: inline-flex; align-items: center; gap: 6px; }
+.app-foot i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); border: 1.5px solid var(--ink); }
+
+/* ---------- setup / coming-soon panel ---------- */
+.app-setup { height: 100%; padding: clamp(28px, 6vw, 72px); display: flex; flex-direction: column; justify-content: center; max-width: 720px; }
+.app-setup h1 { margin: 0 0 18px; font-size: clamp(40px, 5.6vw, 76px); line-height: .95; text-transform: uppercase; }
+.app-setup > p { max-width: 520px; margin: 0; color: var(--ink-soft); font-size: 17px; line-height: 1.55; }
+.app-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 22px; margin-top: 30px; }
+.app-setup small { margin-top: 34px; color: var(--ink-faint); font-family: var(--font-mono); font-size: 10px; line-height: 1.8; }
+.app-setup code { padding: 1px 6px; border: 1.5px solid rgba(21,22,28,.3); border-radius: 4px; background: var(--paper-2); }
+
+/* ---------- widget surface tweaks ---------- */
+.hoodit-app [data-slot="button"][data-variant="default"], .hoodit-app button[type="submit"] { font-weight: 700; }
+.hoodit-app ::selection { background: var(--mint); }
+
+@media (max-width: 700px) {
+  .app-bar, .app-frame, .app-foot { width: min(100% - 24px, 1240px); }
+  .app-bar { height: auto; padding: 12px 0; flex-wrap: wrap; gap: 12px; }
+  .app-chain { order: 3; }
+  .app-frame { margin-top: 14px; height: auto; min-height: calc(100dvh - 200px); box-shadow: 6px 6px 0 var(--ink); }
+  .app-foot { flex-wrap: wrap; height: auto; padding: 12px 0; gap: 8px; }
+}

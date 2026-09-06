@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "platform": "hoodit",
+  "platform": "community",
   "applications": [
     "apps/hoodit/aomi.toml"
   ]
