@@ -29,6 +29,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npx --yes npm@10.9.2 ci
       - run: npm run lint
       - run: npm run build
