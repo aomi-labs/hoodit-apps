@@ -13,7 +13,7 @@ The repository remains plural so future products, such as a separately permissio
 
 ## Landing page
 
-Requires Node.js 22.13 or newer.
+Requires Node.js 24.3 or newer.
 
 ```bash
 npm ci
