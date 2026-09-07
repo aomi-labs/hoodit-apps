@@ -103,7 +103,7 @@ export function HooditLanding() {
 
       <section className="widget-demo-section section-shell" id="demo">
         <div className="widget-demo-copy">
-          <h2>Try the bot<br />before you scan.</h2>
+          <h2>Try the bot before you scan.</h2>
           <p>Same agent. Same transaction flow. Right here on the web.</p>
           <div className="demo-scene-frame">
             <video className="demo-scene" src="/demo-cat.mp4" poster="/demo-cat.jpg" autoPlay muted loop playsInline aria-label="Hoodit in a ninja stance" />
@@ -211,7 +211,7 @@ export function HooditLanding() {
         <div className="join-card plate">
           <div className="join-copy">
             <p className="overline">EARLY ACCESS</p>
-            <h2>Your next trade<br />starts with a text.</h2>
+            <h2>Your next trade starts with a text.</h2>
             <p>Open Hoodit in Telegram. Your account, intelligence, and trading flow move with you.</p>
             <div className="join-actions">
               <a className="primary-button" href="#hero-qr">Open in Telegram <span>↗</span></a>
