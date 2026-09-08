@@ -1,10 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { chatFetch } from "../../lib/chat-fetch";
 import "@aomi-labs/widget-lib/styles.css";
+import { HooditBrand } from "./hoodit-brand";
 import "./app.css";
 
 const AomiWidget = dynamic(
@@ -15,6 +17,7 @@ const AomiWidget = dynamic(
 const clientOptions = { fetch: chatFetch };
 
 export function HooditApp() {
+  const frameRef = useRef<HTMLElement>(null);
   return (
     <main className="hoodit-app">
       <header className="app-bar">
@@ -25,12 +28,12 @@ export function HooditApp() {
         <span className="app-chain"><i /> ROBINHOOD CHAIN</span>
         <Link className="app-back" href="/">← Back to site</Link>
       </header>
-      <section className="app-frame" aria-label="Hoodit chat">
+      <section className="app-frame" aria-label="Hoodit chat" ref={frameRef}>
         <AomiWidget
           applicationId="2938613"
           apiUrl="https://chat.aomi.dev"
           auth={{ kind: "browser_wallet" }}
-          wallets={{ evm: { preset: "popular" }, solana: false }}
+          wallets={{ evm: { preset: "popular", appName: "Hoodit", appLogoUrl: "/hoodit-logo.jpg" }, solana: false }}
           walletFamilies={["evm"]}
           width="100%"
           height="100%"
@@ -43,9 +46,10 @@ export function HooditApp() {
           // owned by a previous anonymous identity after a reload.
           persistThread={false}
         />
+        <HooditBrand frameRef={frameRef} />
       </section>
       <footer className="app-foot">
-        <span>POWERED BY <b>AOMI</b></span>
+        <span>© 2026 <b>HOODIT</b> · ROBINHOOD CHAIN</span>
         <span>Stock Tokens are tokenized exposure, not underlying shares.</span>
       </footer>
     </main>
