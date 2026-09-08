@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { HooditApp } from "./hoodit-app";
 
 export const metadata: Metadata = {
@@ -8,9 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AppPage() {
-  return (
-    <Suspense fallback={null}>
-      <HooditApp />
-    </Suspense>
-  );
+  return <HooditApp />;
 }
