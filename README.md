@@ -31,6 +31,8 @@ hosted `/v1/agent/*` endpoint does not currently supply cross-origin CORS header
 The relay forwards the caller's bearer unchanged with this site's origin; Aomi
 still validates identity, scope and session ownership. It does not forward
 cookies, mint credentials, follow redirects, or use a shared server API key.
+Guest credentials are page-scoped, so reloading starts a fresh conversation;
+local thread-ID persistence is disabled to avoid restoring another guest's session.
 
 Assistant UI dependencies are pinned through `overrides` to avoid the render
 loop and incompatible Markdown peer dependency in the freely resolved versions.

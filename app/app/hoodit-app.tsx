@@ -39,8 +39,9 @@ export function HooditApp() {
           walletPosition="header"
           clientOptions={clientOptions}
           controlBarProps={{ hideApp: true }}
-          persistThread
-          threadPersistenceKey="hoodit-chat"
+          // Guest credentials are page-scoped: never revive a conversation
+          // owned by a previous anonymous identity after a reload.
+          persistThread={false}
         />
       </section>
       <footer className="app-foot">
