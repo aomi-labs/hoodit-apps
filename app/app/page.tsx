@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { HooditApp } from "./hoodit-app";
 
 export const metadata: Metadata = {
   title: "Hoodit — App",
@@ -7,7 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AppPage() {
-  // Cross-site embeds cannot reliably establish the hosted chat session.
-  // Keep authentication first-party until the embeddable client supports it.
-  redirect("https://chat.aomi.dev/?app=hoodit&application_id=2938613&lock_app=1");
+  return <HooditApp />;
 }

@@ -20,7 +20,23 @@ npm ci
 npm run dev
 ```
 
-Use `npm run lint` and `npm run build` before publishing frontend changes.
+Use `npm test`, `npm run lint` and `npm run build` before publishing frontend changes.
+
+### In-page chat
+
+`/app` mounts the native Aomi widget, pinned to Hoodit application `2938613`.
+Guest and wallet sessions are issued directly by `chat.aomi.dev` and bound to
+the browser origin. Agent requests use `/api/agent/*` on this site because the
+hosted `/v1/agent/*` endpoint does not currently supply cross-origin CORS headers.
+The relay forwards the caller's bearer unchanged with this site's origin; Aomi
+still validates identity, scope and session ownership. It does not forward
+cookies, mint credentials, follow redirects, or use a shared server API key.
+
+Assistant UI dependencies are pinned through `overrides` to avoid the render
+loop and incompatible Markdown peer dependency in the freely resolved versions.
+When upgrading, verify rendering and a real read-only chat response in the
+browser, not just a successful build. Regression tests cover the relay's route,
+origin, credential and error boundaries. Wallet signing requires separate tests.
 
 ## Aomi application
 
