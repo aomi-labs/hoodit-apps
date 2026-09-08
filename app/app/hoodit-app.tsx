@@ -36,7 +36,7 @@ export function HooditApp() {
           height="100%"
           showHeader
           showSidebar
-          walletPosition="header"
+          walletPosition="footer"
           clientOptions={clientOptions}
           controlBarProps={{ hideApp: true }}
           // Guest credentials are page-scoped: never revive a conversation

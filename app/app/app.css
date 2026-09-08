@@ -1,4 +1,63 @@
+/* ---------- Hoodit theme for the Aomi widget ----------
+   The widget reads shadcn-style tokens plus its own --aomi-* set from :root.
+   Everything here is scoped to .hoodit-app so the landing page is untouched. */
+.hoodit-app {
+  --font-geist-sans: var(--font-body);
+  --font-geist-mono: var(--font-mono);
+  --aomi-font-wordmark: var(--font-display);
+  --radius: 10px;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: #fbf6ea;
+  --card-foreground: var(--ink);
+  --popover: #fbf6ea;
+  --popover-foreground: var(--ink);
+  --primary: var(--cobalt);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--mint);
+  --accent-foreground: var(--ink);
+  --destructive: #c8434f;
+  --border: rgba(21, 22, 28, .28);
+  --input: rgba(21, 22, 28, .28);
+  --ring: var(--cobalt);
+  --sidebar: var(--paper-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--cobalt);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: var(--mint);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: rgba(21, 22, 28, .22);
+  --sidebar-ring: var(--cobalt);
+
+  --aomi-bg: var(--paper);
+  --aomi-surface: #fbf6ea;
+  --aomi-surface-2: var(--paper-2);
+  --aomi-raised: #fff9ec;
+  --aomi-border: rgba(21, 22, 28, .28);
+  --aomi-fg: var(--ink);
+  --aomi-muted: var(--ink-soft);
+  --aomi-accent: var(--cobalt);
+  --aomi-accent-strong: var(--cobalt-2);
+  --aomi-accent-subtle: #dfe6fa;
+  --aomi-on-accent: var(--paper);
+  --aomi-hover: var(--paper-2);
+  --aomi-pink: var(--blush);
+  --aomi-success: var(--green);
+  --aomi-warning: var(--mustard);
+  --aomi-danger: #c8434f;
+  --aomi-danger-strong: #a83542;
+  --aomi-on-danger: var(--paper);
+  --aomi-info: var(--cobalt);
+}
+
 .hoodit-app { min-height: 100dvh; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
+.app-frame { font-family: var(--font-body); }
+.app-frame .aui-thread-welcome-title { font-family: var(--font-display); font-size: clamp(22px, 3vw, 30px); font-weight: 400; }
 .app-bar { width: min(1440px, calc(100% - 48px)); margin: 0 auto; min-height: 76px; display: flex; align-items: center; gap: 22px; border-bottom: 3px solid var(--ink); }
 .app-chain { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 2px solid var(--ink); border-radius: var(--sketch-2); background: var(--green); color: var(--paper); font: 700 9px var(--font-mono); letter-spacing: .1em; }
 .app-chain i { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); }
