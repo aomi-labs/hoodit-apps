@@ -84,11 +84,12 @@ export function HooditLanding() {
             </div>
             <div className="stage-item stage-qr" role="button" tabIndex={0} aria-label={qrFront ? "Bring the bot back to the front" : "Show the QR code"} onClick={toggleStage} onKeyDown={stageKey}>
               <div className="qr-sticker">
-                <div className="qr-code" role="img" aria-label="Hoodit Telegram invite QR code placeholder">
+                <div className="qr-code is-soon" role="img" aria-label="Hoodit Telegram bot, coming soon">
                   {qrPattern.join("").split("").map((cell, index) => <i key={index} className={cell === "1" ? "filled" : ""} />)}
                   <span><Image src="/hoodit-logo.jpg" alt="" width={512} height={512} /></span>
+                  <b className="qr-soon">COMING SOON</b>
                 </div>
-                <div className="qr-caption"><span>SCAN ME</span><b>TELEGRAM ↗</b></div>
+                <div className="qr-caption"><span>SOON ON</span><b>TELEGRAM</b></div>
               </div>
             </div>
           </div>
