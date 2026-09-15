@@ -54,10 +54,11 @@ The deterministic application scenario lives at `apps/hoodit/test.json`.
 
 ## Connect to Aomi Build
 
-In **Deployments → New app → Connect an existing repository**, enter:
+In **Deployments → New app → Connect an existing repository**, enter the fork
+that Aomi Build should read. For this checkout, use:
 
 ```text
-aomi-labs/hoodit-apps
+arixoneth/hoodit-apps
 ```
 
 The root Project manifest selects the `community` platform and publishes `apps/hoodit/aomi.toml`. Commit and push changes before importing so Build can read the same revision.
