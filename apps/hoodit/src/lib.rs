@@ -93,7 +93,7 @@ mod tests {
         let manifest = client::HooditApp.manifest();
         assert_eq!(manifest.name, "hoodit");
         assert_eq!(manifest.version, "0.2.0");
-        assert_eq!(manifest.sdk_version, "4.0.0");
+        assert_eq!(manifest.sdk_version, "5.1.0");
         assert_eq!(
             manifest.namespaces,
             Some(vec!["aomi-core".to_string(), "evm-core".to_string()])
