@@ -49,14 +49,23 @@ Stop when the asset is halted, the official quote is unavailable or stale, the w
 dyn_aomi_app!(
     app = client::HooditApp,
     name = "hoodit",
-    version = "0.2.0",
+    version = "0.2.1",
     preamble = PREAMBLE,
     tools = [
         client::SearchStockTokens,
         client::GetStockSnapshot,
         client::GetCorporateActions,
     ],
-    namespaces = ["aomi-core", "evm-core"]
+    namespaces = ["aomi-core", "evm-core"],
+    skills = [
+        {
+            id: "hoodit/injected-tool-test",
+            description: "Run Hoodit's disposable skill-injected tool deployment probe",
+            tags: ["test", "skill injection", "deployment"],
+            tools: [client::SkillInjectionTest],
+            sections: { instructions: "skill/injected-tool-test.md" },
+        },
+    ],
 );
 
 #[cfg(test)]
@@ -92,7 +101,7 @@ mod tests {
     fn manifest_is_host_compatible() {
         let manifest = client::HooditApp.manifest();
         assert_eq!(manifest.name, "hoodit");
-        assert_eq!(manifest.version, "0.2.0");
+        assert_eq!(manifest.version, "0.2.1");
         assert_eq!(manifest.sdk_version, "5.1.0");
         assert_eq!(
             manifest.namespaces,
@@ -114,7 +123,21 @@ mod tests {
                 "hoodit_search_stock_tokens",
                 "hoodit_get_stock_snapshot",
                 "hoodit_get_corporate_actions",
+                "hoodit_skill_injection_test",
             ])
+        );
+
+        assert_eq!(manifest.skills.len(), 1);
+        let skill = &manifest.skills[0];
+        assert_eq!(skill.id, "hoodit/injected-tool-test");
+        assert_eq!(
+            skill.injected_tools,
+            vec!["hoodit_skill_injection_test".to_string()]
+        );
+        assert!(
+            skill
+                .render_sections()
+                .contains("HOODIT_SKILL_INJECTION_OK")
         );
 
         for tool in &manifest.tools {

@@ -42,15 +42,18 @@ origin, credential and error boundaries. Wallet signing requires separate tests.
 
 ## Aomi application
 
-The workspace pins `aomi-sdk = "=4.0.0"`, matching the Aomi backend runtime. The Hoodit app itself declares no API-key secrets; market data is public and wallet indexing stays backend-owned.
+The workspace pins `aomi-sdk = "=5.1.0"`, matching the Aomi backend runtime. The Hoodit app itself declares no API-key secrets; market data is public and wallet indexing stays backend-owned.
 
 ```bash
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-aomi-build sdk check --path . --required-version 4.0.0
+aomi-build sdk check --path . --required-version 5.1.0
 ```
 
 The deterministic application scenario lives at `apps/hoodit/test.json`.
+The temporary `hoodit/injected-tool-test` app skill owns the harmless
+`hoodit_skill_injection_test` probe tool; the runtime must hide and reject the
+tool until the skill is activated.
 
 ## Connect to Aomi Build
 

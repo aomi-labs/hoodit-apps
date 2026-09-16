@@ -1,11 +1,17 @@
 {
-  "user_story": "Use Hoodit to find Apple's canonical Robinhood Stock Token, inspect its live multiplier-adjusted market snapshot, and read the connected wallet's AAPL position and Stock Token portfolio without preparing a trade.",
+  "user_story": "Verify Hoodit's disposable app skill injects its probe tool only after activation, then find Apple's canonical Robinhood Stock Token, inspect its live multiplier-adjusted market snapshot, and read the connected wallet's AAPL position and Stock Token portfolio without preparing a trade.",
   "wallet_seed": {
     "address": "0x2d4d2A025b10C09BDbd794B4FCe4F7ea8C7d7bB4",
     "chain_id": 4663,
     "is_connected": true
   },
   "turns": [
+    {
+      "prompt": "Run the disposable Hoodit skill-injection deployment probe and report its exact marker. Do not call any market or wallet tools.",
+      "expected_tools": {
+        "must_call": ["activate_skills", "hoodit_skill_injection_test"]
+      }
+    },
     {
       "prompt": "Find Apple in the Robinhood Stock Token catalog. Keep the answer short and include its ticker and canonical Robinhood Chain contract.",
       "expected_tools": {
@@ -33,7 +39,7 @@
   ],
   "final_assertion": {
     "tool_responses": {
-      "any_returned_substring": "AAPL"
+      "any_returned_substring": "HOODIT_SKILL_INJECTION_OK"
     },
     "user_state": {
       "pending_txs": {

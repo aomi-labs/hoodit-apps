@@ -4,6 +4,34 @@ use aomi_sdk::*;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub(crate) struct SkillInjectionTest;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SkillInjectionTestArgs {
+    /// Optional label echoed only to distinguish manual probe runs.
+    #[serde(default)]
+    probe: Option<String>,
+}
+
+impl DynAomiTool for SkillInjectionTest {
+    type App = HooditApp;
+    type Args = SkillInjectionTestArgs;
+    const NAME: &'static str = "hoodit_skill_injection_test";
+    const DESCRIPTION: &'static str = "Run Hoodit's harmless deployment probe. This tool is available only after activating the hoodit/injected-tool-test app skill.";
+
+    fn run(_app: &HooditApp, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
+        Ok(json!({
+            "ok": true,
+            "marker": "HOODIT_SKILL_INJECTION_OK",
+            "skill_id": "hoodit/injected-tool-test",
+            "app_version": "0.2.1",
+            "probe": args.probe,
+            "side_effects": false,
+        }))
+    }
+}
+
 pub(crate) struct SearchStockTokens;
 
 #[derive(Debug, Deserialize, JsonSchema)]
