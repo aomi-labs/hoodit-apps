@@ -46,7 +46,7 @@ origin, credential and error boundaries. Wallet signing requires separate tests.
 
 ## Aomi application
 
-The workspace pins `aomi-sdk = "=5.1.0"`, matching the Aomi backend runtime. GeckoTerminal market data is public. Wallet reads use an operator-supplied free Blockscout API key; optional LI.FI valuation can use a free API key. Provider credentials are delivered by the host and never exposed as tool arguments or handled by the frontend relay.
+The workspace pins `aomi-sdk = "=5.1.0"`, matching the Aomi backend runtime. GeckoTerminal market data and LI.FI read-only valuation use their public keyless APIs. Wallet reads use a free Blockscout key configured only in Hoodit's Builder Environment. Provider credentials are delivered by the host and never exposed as tool arguments, requested from end users, or handled by the frontend relay.
 
 ```bash
 cargo test --workspace

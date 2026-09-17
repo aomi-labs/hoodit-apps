@@ -271,6 +271,12 @@ fn emits_one_success_envelope_for_every_tool() {
         missing_provider["output"]["error"]["code"],
         "PROVIDER_NOT_CONFIGURED"
     );
+    assert!(
+        missing_provider["output"]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("operator-managed provider configuration is missing")
+    );
     cases.push(missing_provider);
     let quoted_app = mock_app();
     let quoted = json!({

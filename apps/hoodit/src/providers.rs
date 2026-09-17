@@ -1,6 +1,6 @@
 use crate::app::{ReadContext, Runtime};
 use crate::model::{self, NETWORK};
-use aomi_sdk::{DynToolCallCtx, resolve_secret_value};
+use aomi_sdk::DynToolCallCtx;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::{Deserialize, Serialize};
@@ -440,16 +440,9 @@ pub struct Blockscout<'a> {
 }
 impl<'a> Blockscout<'a> {
     pub fn from_ctx(runtime: &'a Runtime, ctx: &DynToolCallCtx) -> Result<Self, ProviderError> {
-        resolve_secret_value(
-            ctx,
-            None,
-            "BLOCKSCOUT_API_KEY",
-            "Blockscout is not configured",
-        )
-        .map(|key| Self { runtime, key })
-        .map_err(|_| ProviderError {
+        ctx.secrets.get("BLOCKSCOUT_API_KEY").map(|key|key.trim()).filter(|key|!key.is_empty()).map(|key|Self{runtime,key:key.to_string()}).ok_or_else(|| ProviderError {
             code: "PROVIDER_NOT_CONFIGURED",
-            message: "Blockscout balance reads are not configured".into(),
+            message: "Hoodit wallet reads are temporarily unavailable because the operator-managed provider configuration is missing.".into(),
             retryable: false,
         })
     }
@@ -645,18 +638,10 @@ fn parse_next(value: Option<&Value>) -> Result<Option<InventoryNext>, ProviderEr
 
 pub struct Lifi<'a> {
     runtime: &'a Runtime,
-    key: Option<String>,
 }
 impl<'a> Lifi<'a> {
-    pub fn from_ctx(runtime: &'a Runtime, ctx: &DynToolCallCtx) -> Self {
-        Self {
-            runtime,
-            key: ctx
-                .secrets
-                .get("LIFI_API_KEY")
-                .filter(|v| !v.trim().is_empty())
-                .cloned(),
-        }
+    pub fn from_ctx(runtime: &'a Runtime, _ctx: &DynToolCallCtx) -> Self {
+        Self { runtime }
     }
     pub fn quote(
         &self,
@@ -683,20 +668,15 @@ impl<'a> Lifi<'a> {
             ("order".into(), "RECOMMENDED".into()),
             ("slippage".into(), "0.005".into()),
         ];
-        let headers = self
-            .key
-            .as_deref()
-            .map(|k| vec![("x-lifi-api-key", k)])
-            .unwrap_or_default();
         let mut value = get(
             self.runtime,
             "lifi",
             &self.runtime.origins.lifi,
             "/quote",
             &q,
-            &headers,
+            &[],
             Duration::from_secs(5),
-            self.key.as_deref(),
+            None,
             read,
         )?;
         validate_quote(&value, &wallet, &from, amount)?;
@@ -827,6 +807,7 @@ mod tests {
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
+        mpsc,
     };
     use std::thread;
 
@@ -845,6 +826,27 @@ mod tests {
             }
         });
         (base, count)
+    }
+
+    fn capture_server(response_body: String) -> (String, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 8192];
+            let read = stream.read(&mut request).unwrap();
+            sender
+                .send(String::from_utf8_lossy(&request[..read]).into_owned())
+                .unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (base, receiver)
     }
 
     #[test]
@@ -910,6 +912,47 @@ mod tests {
         let mut wrong = quote;
         wrong["action"]["toChainId"] = json!(1);
         assert!(validate_quote(&wrong, wallet, from, "1000000000000000000").is_err());
+    }
+
+    #[test]
+    fn lifi_is_keyless_even_when_context_contains_a_legacy_key() {
+        let wallet = "0xb202bb725c85b90bd847d350ebc7f16ff8408ed8";
+        let from = "0x39dbed3a2bd333467115de45665cc57f813c4571";
+        let amount = "1000000000000000000";
+        let body = json!({
+            "action": {
+                "fromChainId": 4663, "toChainId": 4663, "fromAmount": amount,
+                "fromAddress": wallet, "toAddress": wallet,
+                "fromToken": {"address": from, "chainId": 4663},
+                "toToken": {"address": model::USDG, "chainId": 4663}
+            },
+            "estimate": {"fromAmount": amount, "toAmount": "636098"}
+        })
+        .to_string();
+        let (base, request) = capture_server(body);
+        let runtime = Runtime::fixture(
+            Client::new(),
+            ProviderOrigins {
+                gecko: base.clone(),
+                blockscout: base.clone(),
+                lifi: base,
+            },
+        );
+        let mut secrets = std::collections::HashMap::new();
+        secrets.insert("LIFI_API_KEY".into(), "legacy-user-key".into());
+        let ctx = DynToolCallCtx {
+            session_id: "test".into(),
+            tool_name: "holding".into(),
+            call_id: "1".into(),
+            state_attributes: Default::default(),
+            secrets,
+        };
+        let lifi = Lifi::from_ctx(&runtime, &ctx);
+        let mut read = ReadContext::portfolio(false);
+        lifi.quote(wallet, from, amount, &mut read).unwrap();
+        let request = request.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!request.to_ascii_lowercase().contains("x-lifi-api-key"));
+        assert!(!request.contains("legacy-user-key"));
     }
 
     #[test]

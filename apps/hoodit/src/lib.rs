@@ -6,20 +6,9 @@ mod providers;
 pub mod tools;
 
 const PREAMBLE: &str = include_str!("preamble.md");
-const BLOCKSCOUT_API_KEY: Secret = Secret::new(
-    "BLOCKSCOUT_API_KEY",
-    "Free Blockscout API key for Robinhood Chain balance reads.",
-    false,
-);
-const LIFI_API_KEY: Secret = Secret::new(
-    "LIFI_API_KEY",
-    "Optional LI.FI key for read-only valuation quotes.",
-    false,
-);
-
 dyn_aomi_app!(
-    app = app::HooditApp, name = "hoodit", version = "1.1.0", preamble = PREAMBLE,
-    tools = [], secrets = [BLOCKSCOUT_API_KEY, LIFI_API_KEY], namespaces = ["aomi-core", "evm-core"],
+    app = app::HooditApp, name = "hoodit", version = "1.1.1", preamble = PREAMBLE,
+    tools = [], secrets = [], namespaces = ["aomi-core", "evm-core"],
     skills = [
         { id: "hoodit/markets", description: "Research Robinhood Chain tokens, pools, candles, and public trades", tags: ["markets", "tokens", "research"], tools: [tools::SearchTokens, tools::DiscoverPools, tools::GetToken, tools::GetCandles, tools::GetTrades], sections: { instructions: "skills/markets.md" }, },
         { id: "hoodit/portfolio", description: "Read exact public Robinhood Chain wallet balances and optional estimates", tags: ["wallet", "portfolio", "balances"], tools: [tools::GetPortfolio, tools::GetHolding], sections: { instructions: "skills/portfolio.md" }, },
@@ -33,7 +22,7 @@ mod tests {
     #[test]
     fn manifest_has_only_skill_owned_v1_tools() {
         let manifest = app::HooditApp::default().manifest();
-        assert_eq!(manifest.version, "1.1.0");
+        assert_eq!(manifest.version, "1.1.1");
         assert_eq!(manifest.skills.len(), 2);
         assert_eq!(manifest.tools.len(), 7);
         let names = manifest
@@ -53,13 +42,15 @@ mod tests {
                 .iter()
                 .all(|t| t.parameters_schema["additionalProperties"] == false)
         );
+        assert!(manifest.secrets.as_ref().is_none_or(Vec::is_empty));
+        assert!(!manifest.preamble.contains("supply an API key"));
         assert!(
             manifest
-                .secrets
-                .as_ref()
-                .unwrap()
-                .iter()
-                .all(|s| !s.required)
+                .preamble
+                .contains("Never ask a user to supply a Blockscout or LI.FI API key")
         );
+        assert!(manifest.preamble.contains(
+            "Do not check or request provider credentials before calling Hoodit read tools"
+        ));
     }
 }
