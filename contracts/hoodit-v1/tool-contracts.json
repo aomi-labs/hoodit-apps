@@ -2240,7 +2240,7 @@
           "minLength": 1,
           "maxLength": 4096,
           "pattern": "^[A-Za-z0-9_-]+$",
-          "description": "Opaque continuation bound to this chain, wallet, fixed ERC-20 filter, and bounded hop count."
+          "description": "Opaque continuation bound to this chain, wallet, fixed ERC-20 filter, and bounded hop count. Omit this field entirely for the first page; never send JSON null, an empty string, or the string 'null'."
         },
         "include_quotes": {
           "type": "boolean",

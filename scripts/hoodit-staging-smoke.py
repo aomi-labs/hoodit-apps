@@ -45,7 +45,22 @@ def request_json(url: str, *, token: str | None = None, origin: str, method: str
         with urllib.request.urlopen(req, timeout=40) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"HTTP {exc.code} from {urllib.parse.urlsplit(url).path}") from exc
+        detail = ""
+        try:
+            error = json.loads(exc.read())
+            if isinstance(error, dict):
+                safe = {
+                    key: error[key]
+                    for key in ("code", "error", "message", "status")
+                    if isinstance(error.get(key), (str, int, float, bool))
+                }
+                if safe:
+                    detail = f": {json.dumps(safe, sort_keys=True)}"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        raise RuntimeError(
+            f"HTTP {exc.code} from {urllib.parse.urlsplit(url).path}{detail}"
+        ) from exc
 
 
 def redact(value: object, secrets: list[str]) -> object:
@@ -79,6 +94,8 @@ def normalize_delta(delta: dict) -> dict:
         }
         if event.get("tool_name") is not None:
             message["toolName"] = event.get("tool_name")
+        if event.get("tool_arguments") is not None:
+            message["toolArguments"] = event.get("tool_arguments")
         if event.get("tool_result") is not None:
             message["toolResult"] = event.get("tool_result")
         messages.append(message)
@@ -194,7 +211,7 @@ def secret_values(paths: list[str]) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="https://chat-staging.aomi.dev")
-    parser.add_argument("--origin", default="https://build-staging.aomi.dev")
+    parser.add_argument("--origin", default="https://chat-staging.aomi.dev")
     parser.add_argument("--application-id", type=int, default=2937810)
     parser.add_argument("--prompt", action="append", dest="prompts")
     parser.add_argument("--expected-tool", action="append", dest="expected_tools")
@@ -223,9 +240,14 @@ def main() -> None:
         delta = normalize_delta(request_json(f"{base}/v1/agent/chat", token=token, origin=args.origin, method="POST", body=payload))
         session_id = delta.get("sessionId") or session_id
         raw_events, events = settle(base, args.origin, token, delta, args.timeout, secrets)
-        if expected_tool:
-            require_tool_result(raw_events, expected_tool)
         transcript.append({"prompt": prompt, "events": events})
+        if expected_tool:
+            try:
+                require_tool_result(raw_events, expected_tool)
+            except RuntimeError as exc:
+                transcript[-1]["validationError"] = str(exc)
+                print(json.dumps({"base": base, "origin": args.origin, "applicationId": args.application_id, "turns": transcript}, indent=2))
+                raise SystemExit(1) from exc
     print(json.dumps({"base": base, "origin": args.origin, "applicationId": args.application_id, "turns": transcript}, indent=2))
 
 

@@ -119,7 +119,10 @@ fn live_read_tools_emit_envelopes() {
             )
         }
         _ => {
-            let input = json!({"wallet_address":wallet,"include_quotes":false,"refresh":true});
+            let mut input = json!({"wallet_address":wallet,"include_quotes":false,"refresh":true});
+            if let Ok(cursor) = std::env::var("HOODIT_LIVE_CURSOR") {
+                input["cursor"] = json!(cursor);
+            }
             (
                 "hoodit_get_portfolio",
                 input.clone(),

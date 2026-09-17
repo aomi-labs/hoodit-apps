@@ -16,7 +16,14 @@ use serde_json::{Value, json};
 #[serde(deny_unknown_fields)]
 pub struct PortfolioArgs {
     pub wallet_address: String,
-    #[serde(default, deserialize_with = "present")]
+    /// Opaque continuation returned by the previous portfolio response. Omit
+    /// this field entirely for the first page; never send an empty value or
+    /// the string "null".
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(
         with = "String",
         length(min = 1, max = 4096),
@@ -35,7 +42,7 @@ impl DynAomiTool for GetPortfolio {
     type App = HooditApp;
     type Args = PortfolioArgs;
     const NAME: &'static str = "hoodit_get_portfolio";
-    const DESCRIPTION: &'static str = "Read one cursor-based Blockscout wallet inventory page and optional bounded LI.FI sample valuations.";
+    const DESCRIPTION: &'static str = "Read one Blockscout wallet inventory page and optional bounded LI.FI sample valuations. Omit cursor entirely for the first page; only reuse a next_cursor returned by an earlier response for the same wallet.";
     fn run(app: &HooditApp, args: PortfolioArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let mut read = ReadContext::portfolio(args.refresh.unwrap_or(false));
         let wallet = match model::address(&args.wallet_address) {

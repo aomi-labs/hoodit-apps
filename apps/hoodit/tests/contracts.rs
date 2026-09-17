@@ -82,6 +82,15 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
     assert!(portfolio["properties"].get("page").is_none());
     assert!(portfolio["properties"].get("page_size").is_none());
     assert_eq!(portfolio["properties"]["include_quotes"]["default"], false);
+    let cursor_schema = &portfolio["properties"]["cursor"];
+    assert!(
+        cursor_schema["description"]
+            .as_str()
+            .unwrap()
+            .contains("first page"),
+        "{cursor_schema:#}"
+    );
+    assert!(cursor_schema.get("default").is_none(), "{cursor_schema:#}");
     let holding = &tools["hoodit_get_holding"].parameters_schema;
     assert_eq!(holding["properties"]["quote_balance_bps"]["minimum"], 1);
     assert_eq!(
@@ -311,6 +320,42 @@ fn emits_one_success_envelope_for_every_tool() {
     assert_eq!(continuation["output"]["data"]["native_included"], false);
     assert_eq!(continuation["output"]["data"]["summary"]["scope"], "page");
     cases.push(continuation);
+    let null_string_cursor = json!({
+        "tool":"hoodit_get_portfolio",
+        "input":{"wallet_address":wallet,"cursor":"null"},
+        "output":GetPortfolio::run(
+            &app,
+            serde_json::from_value(json!({"wallet_address":wallet,"cursor":"null"})).unwrap(),
+            ctx("hoodit_get_portfolio"),
+        ).unwrap()
+    });
+    assert_eq!(null_string_cursor["output"]["status"], "error");
+    assert_eq!(
+        null_string_cursor["output"]["error"]["code"],
+        "INVALID_ARGUMENT"
+    );
+    cases.push(null_string_cursor);
+    let wrong_wallet_cursor = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&json!({
+            "v":1,"chain":4663,
+            "wallet":"0x5555555555555555555555555555555555555555",
+            "hop":1,
+            "next":{"id":7,"value":"1000000000000000000","fiat_value":null,"items_count":50}
+        }))
+        .unwrap(),
+    );
+    let wrong_wallet = json!({
+        "tool":"hoodit_get_portfolio",
+        "input":{"wallet_address":wallet,"cursor":wrong_wallet_cursor},
+        "output":GetPortfolio::run(
+            &app,
+            serde_json::from_value(json!({"wallet_address":wallet,"cursor":wrong_wallet_cursor})).unwrap(),
+            ctx("hoodit_get_portfolio"),
+        ).unwrap()
+    });
+    assert_eq!(wrong_wallet["output"]["status"], "error");
+    assert_eq!(wrong_wallet["output"]["error"]["code"], "INVALID_ARGUMENT");
+    cases.push(wrong_wallet);
     let native_app = mock_app();
     let native = json!({
         "tool":"hoodit_get_holding",
