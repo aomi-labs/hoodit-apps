@@ -33,16 +33,18 @@ Results at the time of this record:
   Node 22 build lacks TypeScript stripping and is not a valid test runtime.
 - ESLint and the optimized Next.js build passed.
 - Rust adversarial input, generated-manifest schema, and deterministic
-  seven-tool emitted-output tests passed. These
-  enforce closed inputs, explicit-null rejection, cursor pagination, valuation
-  opt-in, holding fraction bounds/defaults, and output-envelope compatibility.
+  seven-tool emitted-output tests passed. These enforce closed inputs,
+  omission-equivalent explicit nulls for optional arguments, cursor pagination,
+  valuation opt-in, holding fraction bounds/defaults, and output-envelope
+  compatibility. Every generated tool property also has a non-empty
+  model-facing description.
 
 The independent validator's `--implementation-fixtures DIR` mode validated 29
 Rust-emitted input/output assertions covering all seven tools. Coverage includes
 a successful echoed LI.FI quote, cursor continuation with page scope, native
 holding, unknown-decimals partial output, typed missing-provider and invalid
-argument errors, rejection of the string `"null"` as a cursor, and rejection of
-a cursor bound to a different wallet. The deterministic
+argument errors, normalization of harmless first-page cursor sentinels, and
+rejection of a real cursor bound to a different wallet. The deterministic
 transport used local synthetic upstream responses and included high-precision
 numeric candle lexemes; it made no live provider calls.
 
@@ -85,14 +87,24 @@ arguments `{"cursor":"null","refresh":false,"include_quotes":false,...}`.
 The tool correctly rejected that fabricated continuation with
 `INVALID_ARGUMENT`; provider credential resolution had already succeeded.
 
-The root cause was the generated optional-string schema advertising
-`default: null`, combined with insufficient first-page guidance. Hoodit v1.1.2
-removes that schema default, explicitly instructs the model to omit
-the cursor on page one, and continues to reject the string `"null"`, malformed
-cursors, and cursors bound to another wallet. The staging smoke adapter now
-retains sanitized legacy `tool_arguments`, emits the transcript before failing
-an assertion, and binds guest tokens to the Chat staging origin rather than the
-Build origin.
+The first remediation removed the generated `default: null` and added
+first-page guidance in Hoodit v1.1.2. A later locked-chat run showed that this
+was not deterministic: the model could still emit the literal string `"null"`
+and the strict runtime would reject it.
+
+Hoodit v1.1.3 treats JSON null, empty strings, and case-insensitive `"null"` as
+first-page omission sentinels while continuing to reject every other malformed,
+oversized, or wrong-wallet cursor. All other optional arguments accept JSON
+null as omission while their provider-facing schemas remain non-null and tell
+the model to omit defaults. The audit adds descriptions for all seven tools and
+every input property, including exact-address requirements, opaque pool IDs,
+decimal-string USD filters, Unix-second candle cutoffs, the `native` token
+sentinel, and basis-point examples. Exact-holding LI.FI quotes are now opt-in in
+both schema and runtime.
+
+The staging smoke adapter retains sanitized legacy `tool_arguments`, emits the
+transcript before failing an assertion, and binds guest tokens to the Chat
+staging origin rather than the Build origin.
 
 ## Staging deployment and post-activation status
 
@@ -112,24 +124,16 @@ runtime `BLOCKSCOUT_API_KEY`, with its value hidden, and the locked Chat surface
 does not ask an end user for a provider key. No transaction or signing activity
 was recorded.
 
-Post-activation app-bound chat verification is blocked upstream of Hoodit.
-Fresh authenticated-browser and anonymous-browser turns, plus three fresh
-origin-bound API attempts, are rejected before model or tool execution with a
-backend 403. A no-app staging control turn made through the same guest bootstrap
-completed successfully. During the rejected Hoodit attempts, live observability
-continued to report the exact release healthy, `Inflight 0`, no loaded instance,
-and unchanged tool-call counters; the app log recorded no post-activation tool
-invocation. Earlier 409 `session_busy` responses likewise occurred with no
-inflight work and later resolved to the consistent 403 admission failure.
+The initial post-activation app-bound checks were rejected before model or tool
+execution while neither staging replica held the hosted artifact. After the
+staging backend reconciliation rollout, both direct replica availability probes
+returned ready, the application catalog reported `artifact_ready=true`, and a
+fresh locked Hoodit browser turn completed with a non-empty assistant response.
+An Auto-mode control also completed. That recovered the separate hosted-app
+admission failure; it did not fix the later model-emitted `"null"` cursor, which
+is addressed in v1.1.3 above.
 
-Accordingly, the seven current-source tools are covered by the successful
-direct live-provider run and schema validation above, but the deployed-chat
-smoke cannot be counted as passed until the staging app-admission path accepts a
-turn. Re-running activation was idempotent and left the same release active; no
-production state or shared backend infrastructure was changed to work around
-the platform failure.
-
-Run the reusable smoke after application `2937810` is active on v1.1.2:
+Run the reusable smoke after application `2937810` is active on v1.1.3:
 
 ```bash
 python3 scripts/hoodit-staging-smoke.py \
@@ -144,6 +148,5 @@ produce the expected tool name and a non-error, non-null Hoodit envelope;
 unrelated skill-activation events do not satisfy the check. It long-polls each
 turn to completion and aborts if any signing action appears. Values loaded from
 an existing `--secret-file` are removed from recorded output, and raw HTTP
-error bodies and action payloads are never printed. The pre-fix v1.1.1 failure
-above is not counted as a pass, and neither are the post-activation admission
-failures described above.
+error bodies and action payloads are never printed. Earlier rejected turns are
+retained as failure evidence rather than counted as passes.

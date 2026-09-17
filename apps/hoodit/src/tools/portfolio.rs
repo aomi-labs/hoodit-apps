@@ -1,4 +1,4 @@
-use super::{present, provider_error};
+use super::provider_error;
 use crate::{
     amount,
     app::{HooditApp, ReadContext},
@@ -9,19 +9,22 @@ use aomi_sdk::schemars::JsonSchema;
 use aomi_sdk::{DynAomiTool, DynToolCallCtx};
 use chrono::Utc;
 use num_traits::Zero;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PortfolioArgs {
+    /// Exact public 0x wallet address on Robinhood Chain. For "my wallet",
+    /// resolve the funded executor with get_account_info on chain 4663 first.
     pub wallet_address: String,
     /// Opaque continuation returned by the previous portfolio response. Omit
-    /// this field entirely for the first page; never send an empty value or
-    /// the string "null".
+    /// this field entirely for the first page: do not send JSON null, an empty
+    /// string, or the string "null". For later pages, reuse only the exact
+    /// next_cursor returned for this wallet; never invent a cursor.
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "first_page_cursor",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(
@@ -30,10 +33,14 @@ pub struct PortfolioArgs {
         pattern(r"^[A-Za-z0-9_-]+$")
     )]
     pub cursor: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Estimate up to a bounded sample of holdings in USDG using LI.FI read
+    /// quotes. Omit for false for a faster balance-only inventory read.
+    #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub include_quotes: Option<bool>,
-    #[serde(default, deserialize_with = "present")]
+    /// Bypass Hoodit's short-lived read cache. Omit for false; use true only
+    /// when the user explicitly asks for a fresh provider read.
+    #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub refresh: Option<bool>,
 }
@@ -42,7 +49,7 @@ impl DynAomiTool for GetPortfolio {
     type App = HooditApp;
     type Args = PortfolioArgs;
     const NAME: &'static str = "hoodit_get_portfolio";
-    const DESCRIPTION: &'static str = "Read one Blockscout wallet inventory page and optional bounded LI.FI sample valuations. Omit cursor entirely for the first page; only reuse a next_cursor returned by an earlier response for the same wallet.";
+    const DESCRIPTION: &'static str = "Read one public Robinhood Chain wallet inventory page. Use for a portfolio or all-token balance request; omit cursor on the first page and only reuse this tool's next_cursor for the same wallet. Optional quotes are estimates, and the result contains no cost basis, P&L, or transaction history.";
     fn run(app: &HooditApp, args: PortfolioArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let mut read = ReadContext::portfolio(args.refresh.unwrap_or(false));
         let wallet = match model::address(&args.wallet_address) {
@@ -163,18 +170,43 @@ impl DynAomiTool for GetPortfolio {
     }
 }
 
+fn first_page_cursor<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let cursor = Option::<String>::deserialize(deserializer)?;
+    Ok(cursor.and_then(|value| {
+        let value = value.trim();
+        if value.is_empty() || value.eq_ignore_ascii_case("null") {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }))
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HoldingArgs {
+    /// Exact public 0x wallet address on Robinhood Chain. For "my wallet",
+    /// resolve the funded executor with get_account_info on chain 4663 first.
     pub wallet_address: String,
+    /// Exact ERC-20 0x contract address, or the literal "native" for native
+    /// ETH. Do not pass a ticker symbol or token name.
     pub token: String,
-    #[serde(default, deserialize_with = "present")]
+    /// Portion of the holding to size and optionally quote, in basis points:
+    /// 1 = 0.01%, 100 = 1%, and 10000 = 100%. Omit for 100 (1%).
+    #[serde(default)]
     #[schemars(with = "u16", range(min = 1, max = 10000), extend("default" = 100))]
     pub quote_balance_bps: Option<u16>,
-    #[serde(default, deserialize_with = "present")]
-    #[schemars(with = "bool", extend("default" = true))]
+    /// Request a read-only LI.FI estimate for the sized amount into USDG.
+    /// Omit for false when only the exact balance or amount is needed.
+    #[serde(default)]
+    #[schemars(with = "bool", extend("default" = false))]
     pub include_quote: Option<bool>,
-    #[serde(default, deserialize_with = "present")]
+    /// Bypass Hoodit's short-lived read cache. Omit to use the default true for
+    /// this exact holding read; pass false only when cached data is acceptable.
+    #[serde(default)]
     #[schemars(with = "bool", extend("default" = true))]
     pub refresh: Option<bool>,
 }
@@ -183,7 +215,7 @@ impl DynAomiTool for GetHolding {
     type App = HooditApp;
     type Args = HoldingArgs;
     const NAME: &'static str = "hoodit_get_holding";
-    const DESCRIPTION: &'static str = "Read an exact wallet holding, floor-size a requested fraction, and optionally estimate USDG proceeds.";
+    const DESCRIPTION: &'static str = "Read one exact wallet holding and floor-size a requested fraction. Use token=\"native\" for native ETH or an exact ERC-20 0x contract address; quote_balance_bps is a percentage in basis points. A quote is read-only and is included only when include_quote=true.";
     fn run(app: &HooditApp, args: HoldingArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let mut read = ReadContext::portfolio(args.refresh.unwrap_or(true));
         let wallet = match model::address(&args.wallet_address) {
@@ -207,7 +239,7 @@ impl DynAomiTool for GetHolding {
             Ok(v) => v,
             Err(e) => return Ok(provider_error(e)),
         };
-        if args.include_quote.unwrap_or(true)
+        if args.include_quote.unwrap_or(false)
             && let Err(e) = verify_usdg(&block, &mut read)
         {
             return Ok(provider_error(e));
@@ -268,7 +300,7 @@ impl DynAomiTool for GetHolding {
             decimals,
             &raw,
             &wallet,
-            args.include_quote.unwrap_or(true),
+            args.include_quote.unwrap_or(false),
             bps,
             &mut quote_attempts,
             &lifi,
@@ -280,7 +312,7 @@ impl DynAomiTool for GetHolding {
         };
         let sell_formatted = decimals.map(|d| amount::format(&sell, d));
         Ok(model::ok(
-            json!({"wallet_address":wallet,"quote_token":quote_token(args.include_quote.unwrap_or(true)),"holding":holding,"requested_balance_bps":bps,"sell_amount":{"atomic":sell.to_string(),"formatted":sell_formatted}}),
+            json!({"wallet_address":wallet,"quote_token":quote_token(args.include_quote.unwrap_or(false)),"holding":holding,"requested_balance_bps":bps,"sell_amount":{"atomic":sell.to_string(),"formatted":sell_formatted}}),
             read.sources,
             {
                 warnings.extend(read.warnings);

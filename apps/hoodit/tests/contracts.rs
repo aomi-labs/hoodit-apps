@@ -36,24 +36,62 @@ fn allows_null(schema: &Value) -> bool {
 }
 
 #[test]
-fn explicit_null_and_unknown_fields_are_rejected_by_every_input() {
-    rejects::<SearchArgs>(json!({"query":"PONS","page":null}));
-    rejects::<DiscoverArgs>(json!({"feed":null}));
-    rejects::<TokenArgs>(
-        json!({"token":"0x1111111111111111111111111111111111111111","pool_id":null}),
+fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
+    let token = "0x1111111111111111111111111111111111111111";
+    let wallet = "0x3333333333333333333333333333333333333333";
+    assert!(
+        serde_json::from_value::<SearchArgs>(json!({"query":"PONS","page":null}))
+            .unwrap()
+            .page
+            .is_none()
     );
-    rejects::<CandlesArgs>(
-        json!({"token":"0x1111111111111111111111111111111111111111","limit":null}),
+    let discover: DiscoverArgs = serde_json::from_value(json!({"feed":null,"duration":null,"page":null,"min_liquidity_usd":null,"min_volume_24h_usd":null})).unwrap();
+    assert!(
+        discover.feed.is_none()
+            && discover.duration.is_none()
+            && discover.page.is_none()
+            && discover.min_liquidity_usd.is_none()
+            && discover.min_volume_24h_usd.is_none()
     );
-    rejects::<TradesArgs>(
-        json!({"token":"0x1111111111111111111111111111111111111111","limit":null}),
+    let token_args: TokenArgs =
+        serde_json::from_value(json!({"token":token,"pool_id":null,"include_metadata":null}))
+            .unwrap();
+    assert!(token_args.pool_id.is_none() && token_args.include_metadata.is_none());
+    let candles: CandlesArgs = serde_json::from_value(json!({"token":token,"pool_id":null,"interval":null,"before":null,"limit":null,"include_open":null})).unwrap();
+    assert!(
+        candles.pool_id.is_none()
+            && candles.interval.is_none()
+            && candles.before.is_none()
+            && candles.limit.is_none()
+            && candles.include_open.is_none()
     );
-    rejects::<PortfolioArgs>(
-        json!({"wallet_address":"0x3333333333333333333333333333333333333333","include_quotes":null}),
+    let trades: TradesArgs = serde_json::from_value(
+        json!({"token":token,"pool_id":null,"limit":null,"min_volume_usd":null}),
+    )
+    .unwrap();
+    assert!(trades.pool_id.is_none() && trades.limit.is_none() && trades.min_volume_usd.is_none());
+    let portfolio: PortfolioArgs = serde_json::from_value(
+        json!({"wallet_address":wallet,"cursor":null,"include_quotes":null,"refresh":null}),
+    )
+    .unwrap();
+    assert!(
+        portfolio.cursor.is_none()
+            && portfolio.include_quotes.is_none()
+            && portfolio.refresh.is_none()
     );
-    rejects::<HoldingArgs>(
-        json!({"wallet_address":"0x3333333333333333333333333333333333333333","token":"native","include_quote":null}),
+    let holding: HoldingArgs = serde_json::from_value(json!({"wallet_address":wallet,"token":"native","quote_balance_bps":null,"include_quote":null,"refresh":null})).unwrap();
+    assert!(
+        holding.quote_balance_bps.is_none()
+            && holding.include_quote.is_none()
+            && holding.refresh.is_none()
     );
+    for cursor in [json!("null"), json!(" NULL "), json!(""), json!("   ")] {
+        let args: PortfolioArgs =
+            serde_json::from_value(json!({"wallet_address":wallet,"cursor":cursor})).unwrap();
+        assert!(args.cursor.is_none());
+    }
+    rejects::<SearchArgs>(json!({"query":null}));
+    rejects::<PortfolioArgs>(json!({"wallet_address":null}));
     rejects::<SearchArgs>(json!({"query":"PONS","execute_now":true}));
 }
 
@@ -67,6 +105,10 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
         .collect();
     assert_eq!(tools.len(), 7);
     for (name, tool) in &tools {
+        assert!(
+            tool.description.len() >= 80,
+            "{name} has an underspecified tool description"
+        );
         assert_eq!(
             tool.parameters_schema["additionalProperties"], false,
             "{name}"
@@ -75,6 +117,12 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
             assert!(
                 !allows_null(schema),
                 "{name}.{property} advertises explicit null"
+            );
+            assert!(
+                schema["description"]
+                    .as_str()
+                    .is_some_and(|description| description.len() >= 20),
+                "{name}.{property} needs a model-facing description: {schema:#}"
             );
         }
     }
@@ -98,6 +146,7 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
         10_000
     );
     assert_eq!(holding["properties"]["quote_balance_bps"]["default"], 100);
+    assert_eq!(holding["properties"]["include_quote"]["default"], false);
 }
 
 fn mock_body(path: &str) -> Value {
@@ -329,10 +378,10 @@ fn emits_one_success_envelope_for_every_tool() {
             ctx("hoodit_get_portfolio"),
         ).unwrap()
     });
-    assert_eq!(null_string_cursor["output"]["status"], "error");
+    assert_eq!(null_string_cursor["output"]["status"], "ok");
     assert_eq!(
-        null_string_cursor["output"]["error"]["code"],
-        "INVALID_ARGUMENT"
+        null_string_cursor["output"]["data"]["native_included"],
+        true
     );
     cases.push(null_string_cursor);
     let wrong_wallet_cursor = URL_SAFE_NO_PAD.encode(

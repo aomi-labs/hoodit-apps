@@ -21,14 +21,6 @@ macro_rules! invalid {
 mod portfolio;
 pub use portfolio::*;
 
-fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
-}
-
 fn provider_error(e: ProviderError) -> Value {
     let code = match e.code {
         "INVALID_CURSOR" => "INVALID_ARGUMENT",
@@ -128,8 +120,13 @@ fn selected_pool(
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchArgs {
+    /// Token name, ticker symbol, or exact 0x contract address to search for.
+    /// A name or symbol can return multiple candidates and must not be treated
+    /// as an exact token identity.
     pub query: String,
-    #[serde(default, deserialize_with = "present")]
+    /// One-based GeckoTerminal search-results page. Omit for page 1; use the
+    /// returned next_page value for another page.
+    #[serde(default)]
     #[schemars(with = "u8", range(min = 1, max = 10), extend("default" = 1))]
     pub page: Option<u8>,
 }
@@ -138,7 +135,7 @@ impl DynAomiTool for SearchTokens {
     type App = HooditApp;
     type Args = SearchArgs;
     const NAME: &'static str = "hoodit_search_tokens";
-    const DESCRIPTION: &'static str = "Find Robinhood Chain token candidates by name, symbol, or exact address without auto-selecting ambiguity.";
+    const DESCRIPTION: &'static str = "Search Robinhood Chain tokens by name, symbol, or exact 0x contract address. Use this before exact-token tools when the user supplied only a name or symbol; return candidates and never guess among ambiguous matches.";
     fn run(app: &HooditApp, args: SearchArgs, _: DynToolCallCtx) -> Result<Value, String> {
         let query = args.query.trim();
         if query.is_empty() || query.len() > 100 {
@@ -233,19 +230,29 @@ impl DynAomiTool for SearchTokens {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiscoverArgs {
-    #[serde(default, deserialize_with = "present")]
+    /// Pool ranking to browse. Use trending unless the user explicitly asks
+    /// for newly indexed, highest-volume, or most-active pools.
+    #[serde(default)]
     #[schemars(with = "String", extend("enum" = ["trending", "new", "top_volume", "top_activity"], "default" = "trending"))]
     pub feed: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Ranking window for the trending feed. Omit for 24h. Other feeds may not
+    /// use this value, and the response states the applied duration.
+    #[serde(default)]
     #[schemars(with = "String", extend("enum" = ["5m", "1h", "6h", "24h"], "default" = "24h"))]
     pub duration: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// One-based provider page. Omit for page 1; use returned next_page for
+    /// another page.
+    #[serde(default)]
     #[schemars(with = "u8", range(min = 1, max = 10), extend("default" = 1))]
     pub page: Option<u8>,
-    #[serde(default, deserialize_with = "present")]
+    /// Minimum pool liquidity in USD as a non-negative decimal string, for
+    /// example "10000". This filters observations; it is not a trade limit.
+    #[serde(default)]
     #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"), extend("default" = "0"))]
     pub min_liquidity_usd: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Minimum trailing-24-hour pool volume in USD as a non-negative decimal
+    /// string, for example "50000".
+    #[serde(default)]
     #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"), extend("default" = "0"))]
     pub min_volume_24h_usd: Option<String>,
 }
@@ -254,8 +261,7 @@ impl DynAomiTool for DiscoverPools {
     type App = HooditApp;
     type Args = DiscoverArgs;
     const NAME: &'static str = "hoodit_discover_pools";
-    const DESCRIPTION: &'static str =
-        "Discover trending, new, top-volume, or top-activity Robinhood Chain pools.";
+    const DESCRIPTION: &'static str = "Browse GeckoTerminal-indexed Robinhood Chain pools by trending, newly indexed, volume, or activity ranking. Use for discovery, not for resolving one named token or obtaining an executable quote.";
     fn run(app: &HooditApp, args: DiscoverArgs, _: DynToolCallCtx) -> Result<Value, String> {
         let feed = args.feed.as_deref().unwrap_or("trending");
         if !["trending", "new", "top_volume", "top_activity"].contains(&feed) {
@@ -326,15 +332,21 @@ fn decimal_ge(actual: Option<&str>, min: &str) -> bool {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TokenArgs {
+    /// Exact Robinhood Chain ERC-20 0x contract address. Do not pass a symbol
+    /// or name; resolve those with hoodit_search_tokens first.
     pub token: String,
-    #[serde(default, deserialize_with = "present")]
+    /// Optional opaque pool_id returned by a Hoodit search, discovery, token,
+    /// candle, or trade result. Omit to use the token's indexed top pool.
+    #[serde(default)]
     #[schemars(
         with = "String",
         length(min = 1, max = 200),
         pattern(r"^[A-Za-z0-9:_-]+$")
     )]
     pub pool_id: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Include bounded public project metadata such as description and links.
+    /// Omit for false when only market statistics are needed.
+    #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub include_metadata: Option<bool>,
 }
@@ -343,7 +355,7 @@ impl DynAomiTool for GetToken {
     type App = HooditApp;
     type Args = TokenArgs;
     const NAME: &'static str = "hoodit_get_token";
-    const DESCRIPTION: &'static str = "Read token statistics and selected-pool context for an exact Robinhood Chain token contract.";
+    const DESCRIPTION: &'static str = "Read market statistics and selected-pool context for one exact Robinhood Chain ERC-20 contract. Requires a 0x contract address, not a symbol; use hoodit_search_tokens first when identity is ambiguous. This is observational data, not an executable quote.";
     fn run(app: &HooditApp, args: TokenArgs, _: DynToolCallCtx) -> Result<Value, String> {
         let token = invalid!(model::address(&args.token));
         let explicit = invalid!(args.pool_id.as_deref().map(pool_id).transpose());
@@ -461,24 +473,34 @@ fn normalize_metadata(v: &Value) -> Value {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CandlesArgs {
+    /// Exact Robinhood Chain ERC-20 0x contract address. Do not pass a symbol
+    /// or name; resolve those with hoodit_search_tokens first.
     pub token: String,
-    #[serde(default, deserialize_with = "present")]
+    /// Optional opaque pool_id returned by a Hoodit result. Omit to use the
+    /// token's indexed top pool. Candles cover only the selected pool.
+    #[serde(default)]
     #[schemars(
         with = "String",
         length(min = 1, max = 200),
         pattern(r"^[A-Za-z0-9:_-]+$")
     )]
     pub pool_id: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Candle width. Omit for 1h.
+    #[serde(default)]
     #[schemars(with = "String", extend("enum" = ["1m", "5m", "15m", "1h", "4h", "12h", "1d"], "default" = "1h"))]
     pub interval: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Exclusive historical cutoff as a Unix timestamp in whole UTC seconds.
+    /// Omit to use the current time. Never pass milliseconds or a future time.
+    #[serde(default)]
     #[schemars(with = "i64")]
     pub before: Option<i64>,
-    #[serde(default, deserialize_with = "present")]
+    /// Maximum provider candles before open-candle filtering. Omit for 100.
+    #[serde(default)]
     #[schemars(with = "u16", range(min = 1, max = 1000), extend("default" = 100))]
     pub limit: Option<u16>,
-    #[serde(default, deserialize_with = "present")]
+    /// Include the current incomplete candle. Omit for false when only closed
+    /// candles should be compared.
+    #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub include_open: Option<bool>,
 }
@@ -487,8 +509,7 @@ impl DynAomiTool for GetCandles {
     type App = HooditApp;
     type Args = CandlesArgs;
     const NAME: &'static str = "hoodit_get_candles";
-    const DESCRIPTION: &'static str =
-        "Read explicit-interval single-pool OHLCV history for an exact token contract.";
+    const DESCRIPTION: &'static str = "Read USD OHLCV history for one exact token contract in one selected pool. Requires a 0x contract address; timestamps are Unix seconds, and results are single-pool market history rather than wallet performance or an executable quote.";
     fn run(app: &HooditApp, args: CandlesArgs, _: DynToolCallCtx) -> Result<Value, String> {
         let token = invalid!(model::address(&args.token));
         let interval = args.interval.as_deref().unwrap_or("1h");
@@ -622,18 +643,26 @@ fn candle_summary(rows: &[Value]) -> Option<Value> {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TradesArgs {
+    /// Exact Robinhood Chain ERC-20 0x contract address. Do not pass a symbol
+    /// or name; resolve those with hoodit_search_tokens first.
     pub token: String,
-    #[serde(default, deserialize_with = "present")]
+    /// Optional opaque pool_id returned by a Hoodit result. Omit to use the
+    /// token's indexed top pool. Trades cover only the selected pool.
+    #[serde(default)]
     #[schemars(
         with = "String",
         length(min = 1, max = 200),
         pattern(r"^[A-Za-z0-9:_-]+$")
     )]
     pub pool_id: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    /// Maximum trades to return after filtering, from 1 through 100. Omit for
+    /// 20.
+    #[serde(default)]
     #[schemars(with = "u16", range(min = 1, max = 100), extend("default" = 20))]
     pub limit: Option<u16>,
-    #[serde(default, deserialize_with = "present")]
+    /// Minimum per-trade USD volume as a non-negative decimal string, for
+    /// example "1000". Omit for "0".
+    #[serde(default)]
     #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"), extend("default" = "0"))]
     pub min_volume_usd: Option<String>,
 }
@@ -642,7 +671,7 @@ impl DynAomiTool for GetTrades {
     type App = HooditApp;
     type Args = TradesArgs;
     const NAME: &'static str = "hoodit_get_trades";
-    const DESCRIPTION: &'static str = "Read recent public single-pool trades, with side normalized relative to the requested token.";
+    const DESCRIPTION: &'static str = "Read recent public trades for one exact token contract in one selected pool, with buy/sell side normalized to that token. Requires a 0x contract address; this is public pool activity, not the user's personal history.";
     fn run(app: &HooditApp, args: TradesArgs, _: DynToolCallCtx) -> Result<Value, String> {
         let token = invalid!(model::address(&args.token));
         let limit = args.limit.unwrap_or(20);
