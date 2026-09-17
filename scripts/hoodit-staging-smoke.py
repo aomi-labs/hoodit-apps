@@ -27,7 +27,11 @@ DEFAULT_TURNS = [
 
 
 def request_json(url: str, *, token: str | None = None, origin: str, method: str = "GET", body: object | None = None) -> dict:
-    headers = {"Accept": "application/json", "Origin": origin}
+    headers = {
+        "Accept": "application/json",
+        "Origin": origin,
+        "User-Agent": "Mozilla/5.0 (compatible; HooditStagingSmoke/1.0)",
+    }
     data = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -55,7 +59,48 @@ def redact(value: object, secrets: list[str]) -> object:
     return value
 
 
+def normalize_delta(delta: dict) -> dict:
+    if "events" not in delta:
+        return delta
+    states = [
+        event.get("state")
+        for event in delta.get("events", [])
+        if event.get("type") == "turn_state_changed" and event.get("state")
+    ]
+    messages = []
+    for event in delta.get("events", []):
+        if event.get("type") != "message":
+            continue
+        message = {
+            "id": event.get("message_key") or event.get("event_id"),
+            "role": "agent" if event.get("sender") == "assistant" else event.get("sender"),
+            "content": event.get("content", ""),
+            "streaming": event.get("is_streaming", False),
+        }
+        if event.get("tool_name") is not None:
+            message["toolName"] = event.get("tool_name")
+        if event.get("tool_result") is not None:
+            message["toolResult"] = event.get("tool_result")
+        messages.append(message)
+    return {
+        "sessionId": delta.get("session_id"),
+        "cursor": delta.get("cursor"),
+        "hasMore": delta.get("has_more", False),
+        "status": states[-1] if states else None,
+        "messages": messages,
+        "activity": [
+            {"type": event.get("type"), "state": event.get("state")}
+            for event in delta.get("events", [])
+            if event.get("type") != "message"
+        ],
+        "actions": [
+            event for event in delta.get("events", []) if "action" in str(event.get("type", ""))
+        ],
+    }
+
+
 def sanitize(delta: dict, secrets: list[str]) -> dict:
+    delta = normalize_delta(delta)
     messages = []
     for message in delta.get("messages", []):
         messages.append({key: message.get(key) for key in ("id", "role", "content", "streaming", "toolName", "toolArguments", "toolResult") if key in message})
@@ -70,6 +115,8 @@ def sanitize(delta: dict, secrets: list[str]) -> dict:
 
 
 def settle(base: str, origin: str, token: str, delta: dict, timeout: int, secrets: list[str]) -> tuple[list[dict], list[dict]]:
+    delta = normalize_delta(delta)
+    last_status = delta.get("status")
     raw = [delta]
     observed = [sanitize(delta, secrets)]
     if delta.get("actions"):
@@ -80,7 +127,11 @@ def settle(base: str, origin: str, token: str, delta: dict, timeout: int, secret
             raise TimeoutError(f"Agent session did not settle within {timeout}s")
         session = urllib.parse.quote(str(delta["sessionId"]), safe="")
         query = urllib.parse.urlencode({"cursor": delta.get("cursor", ""), "wait": 30000})
-        delta = request_json(f"{base}/v1/agent/chat/{session}?{query}", token=token, origin=origin)
+        delta = normalize_delta(request_json(f"{base}/v1/agent/chat/{session}?{query}", token=token, origin=origin))
+        if delta.get("status") is None:
+            delta["status"] = last_status
+        else:
+            last_status = delta.get("status")
         raw.append(delta)
         if delta.get("actions"):
             raise RuntimeError("Read-only smoke unexpectedly produced a wallet/signing action")
@@ -169,7 +220,7 @@ def main() -> None:
         payload = {"applicationId": args.application_id, "message": prompt}
         if session_id:
             payload["sessionId"] = session_id
-        delta = request_json(f"{base}/v1/agent/chat", token=token, origin=args.origin, method="POST", body=payload)
+        delta = normalize_delta(request_json(f"{base}/v1/agent/chat", token=token, origin=args.origin, method="POST", body=payload))
         session_id = delta.get("sessionId") or session_id
         raw_events, events = settle(base, args.origin, token, delta, args.timeout, secrets)
         if expected_tool:
