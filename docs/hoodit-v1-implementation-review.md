@@ -109,18 +109,31 @@ apps/hoodit/src/
   amount.rs               # bounded uint256 and exact rational formatting
   model.rs                # response-envelope and identity helpers
   providers.rs            # GeckoTerminal, Blockscout, LI.FI adapters
-  tools.rs                # five market tools and shared normalization
-  tools/portfolio.rs      # portfolio and exact-holding tools
+  tools.rs                # public tool facade and provider-error mapping
+  tools/
+    markets/
+      mod.rs              # market re-exports and shared normalization
+      search.rs           # token search tool
+      discovery.rs        # pool discovery tool
+      token.rs            # exact-token market tool
+      candles.rs          # candle history tool
+      trades.rs           # recent trades tool
+      normalization.rs    # shared argument and provider normalization
+    portfolio/
+      mod.rs              # portfolio re-exports
+      inventory.rs        # wallet inventory tool
+      holding.rs          # exact-holding tool
+      valuation.rs        # shared balance and quote normalization
   preamble.md
   skills/{markets,portfolio}.md
 apps/hoodit/tests/contracts.rs
 contracts/hoodit-v1/
 ```
 
-Provider DTOs and several helpers are intentionally consolidated rather than
-split into the many modules imagined during design. `client.rs`, `tool.rs`, and
-the disposable injected-tool skill from the old app are absent from the final
-source tree.
+Provider DTOs remain consolidated, while public tools are split by operation and
+share domain-specific normalization modules. `client.rs`, `tool.rs`, and the
+disposable injected-tool skill from the old app are absent from the final source
+tree.
 
 ## Historical proposed files and ownership (superseded)
 

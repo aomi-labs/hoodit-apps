@@ -6,7 +6,8 @@ Hoodit is a Robinhood Chain trading assistant for token discovery, market resear
 
 - `app/` and `public/` — Next.js landing page and product UI
 - `apps/hoodit/` — Rust v1.1 dynamic application loaded by Aomi; `src/tools.rs`
-  owns five market reads and `src/tools/portfolio.rs` owns the two wallet reads
+  is the public facade, while `src/tools/markets/` and `src/tools/portfolio/`
+  own the market and wallet reads respectively
 - `contracts/hoodit-v1/` — canonical JSON Schemas, examples, and independent validator
 - `docs/hoodit-v1-validation.md` — local and sanitized provider evidence, with deployment work called out separately
 - `.aomi/config.json` — Aomi Project manifest used by Build's community repository import
