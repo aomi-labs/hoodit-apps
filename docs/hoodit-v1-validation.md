@@ -86,13 +86,48 @@ The tool correctly rejected that fabricated continuation with
 `INVALID_ARGUMENT`; provider credential resolution had already succeeded.
 
 The root cause was the generated optional-string schema advertising
-`default: null`, combined with insufficient first-page guidance. The v1.1.2
-candidate removes that schema default, explicitly instructs the model to omit
+`default: null`, combined with insufficient first-page guidance. Hoodit v1.1.2
+removes that schema default, explicitly instructs the model to omit
 the cursor on page one, and continues to reject the string `"null"`, malformed
 cursors, and cursors bound to another wallet. The staging smoke adapter now
 retains sanitized legacy `tool_arguments`, emits the transcript before failing
 an assertion, and binds guest tokens to the Chat staging origin rather than the
 Build origin.
+
+## Staging deployment and post-activation status
+
+Source commit `bdc383a6fb5e020afa8dbe2773805f9e8e7235bd` was deployed only to
+staging as deployment `dep_162207273_rff4cf0103f_bdc383a6fb5e`. Platform CI
+run `35203743039` passed validation, the locked Linux build, and immutable
+release publication. The resulting release tag is
+`apps-162207273-rff4cf0103f-hoodit-bdc383a6fb5e`; its candidate commit is
+`70e19346c160d4a3ac159b57062ad22ee6ad18cc`. The published plugin digest is
+`sha256:31831334a17325ab48767d9746ce867081487be53534c246bda311e7d71ee5b4`.
+
+The Build control plane reports application `2937810` active on that exact
+release. Its deployment timeline labels the source commit current, and live
+observability labels the release healthy on SDK 5.1.0. The published deployment
+record retains `is_public: true`; the Environment view contains the builder-set
+runtime `BLOCKSCOUT_API_KEY`, with its value hidden, and the locked Chat surface
+does not ask an end user for a provider key. No transaction or signing activity
+was recorded.
+
+Post-activation app-bound chat verification is blocked upstream of Hoodit.
+Fresh authenticated-browser and anonymous-browser turns, plus three fresh
+origin-bound API attempts, are rejected before model or tool execution with a
+backend 403. A no-app staging control turn made through the same guest bootstrap
+completed successfully. During the rejected Hoodit attempts, live observability
+continued to report the exact release healthy, `Inflight 0`, no loaded instance,
+and unchanged tool-call counters; the app log recorded no post-activation tool
+invocation. Earlier 409 `session_busy` responses likewise occurred with no
+inflight work and later resolved to the consistent 403 admission failure.
+
+Accordingly, the seven current-source tools are covered by the successful
+direct live-provider run and schema validation above, but the deployed-chat
+smoke cannot be counted as passed until the staging app-admission path accepts a
+turn. Re-running activation was idempotent and left the same release active; no
+production state or shared backend infrastructure was changed to work around
+the platform failure.
 
 Run the reusable smoke after application `2937810` is active on v1.1.2:
 
@@ -109,6 +144,6 @@ produce the expected tool name and a non-error, non-null Hoodit envelope;
 unrelated skill-activation events do not satisfy the check. It long-polls each
 turn to completion and aborts if any signing action appears. Values loaded from
 an existing `--secret-file` are removed from recorded output, and raw HTTP
-error bodies and action payloads are never printed. The final v1.1.2 deployment
-and post-activation results are recorded after the release is promoted; the
-pre-fix v1.1.1 failure above is not counted as a pass.
+error bodies and action payloads are never printed. The pre-fix v1.1.1 failure
+above is not counted as a pass, and neither are the post-activation admission
+failures described above.
