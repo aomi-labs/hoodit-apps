@@ -96,7 +96,7 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
 }
 
 #[test]
-fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
+fn generated_manifest_exposes_strict_compatible_skill_inputs() {
     let manifest = HooditApp::default().manifest();
     let tools: HashMap<_, _> = manifest
         .tools
@@ -115,8 +115,8 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
         );
         for (property, schema) in tool.parameters_schema["properties"].as_object().unwrap() {
             assert!(
-                !allows_null(schema),
-                "{name}.{property} advertises explicit null"
+                (*name == "hoodit_get_portfolio" && property == "cursor") || !allows_null(schema),
+                "{name}.{property} unexpectedly advertises explicit null"
             );
             assert!(
                 schema["description"]
@@ -131,6 +131,18 @@ fn generated_manifest_exposes_closed_non_nullable_skill_inputs() {
     assert!(portfolio["properties"].get("page_size").is_none());
     assert_eq!(portfolio["properties"]["include_quotes"]["default"], false);
     let cursor_schema = &portfolio["properties"]["cursor"];
+    assert!(
+        allows_null(cursor_schema),
+        "strict tool schemas require a nullable first-page cursor: {cursor_schema:#}"
+    );
+    let cursor_types = cursor_schema["type"]
+        .as_array()
+        .expect("cursor must use a provider-compatible string/null type union");
+    assert!(cursor_types.iter().any(|kind| kind == "string"));
+    assert!(cursor_types.iter().any(|kind| kind == "null"));
+    assert_eq!(cursor_schema["minLength"], 1);
+    assert_eq!(cursor_schema["maxLength"], 4096);
+    assert_eq!(cursor_schema["pattern"], "^[A-Za-z0-9_-]+$");
     assert!(
         cursor_schema["description"]
             .as_str()

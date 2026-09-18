@@ -2236,11 +2236,14 @@
           "$ref": "#/$defs/Address"
         },
         "cursor": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "maxLength": 4096,
           "pattern": "^[A-Za-z0-9_-]+$",
-          "description": "Opaque continuation bound to this chain, wallet, fixed ERC-20 filter, and bounded hop count. Omit this field entirely for the first page; do not send JSON null, an empty string, or the string 'null'. For later pages, reuse only the exact next_cursor returned for the same wallet."
+          "description": "Opaque continuation bound to this chain, wallet, fixed ERC-20 filter, and bounded hop count. Use JSON null for the first page (or omit the field when the client permits omission). For later pages, reuse only the exact next_cursor returned for the same wallet; never invent a cursor or placeholder."
         },
         "include_quotes": {
           "type": "boolean",

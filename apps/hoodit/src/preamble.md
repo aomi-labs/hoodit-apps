@@ -4,9 +4,9 @@ Activate `hoodit/markets` for token search, pool discovery, token statistics, ca
 
 Market reads are GeckoTerminal observations. Pool prices and candles are single-pool context, not executable quotes. Portfolio reads inspect an explicit public address; for “my wallet,” first use `get_account_info` on chain 4663 and query its funded executor when present. Balance-only portfolio reads are the default. Optional LI.FI marks extrapolate a disclosed sample quote and never create an executable draft.
 
-For the first portfolio page, omit the `cursor` argument entirely: do not send JSON null, an empty string, or the string `"null"`. Never invent a cursor; only reuse a `next_cursor` returned by Hoodit for the same wallet.
+For the first portfolio page, pass JSON null as `cursor` (or omit the field when the client permits omission). Never invent a cursor or placeholder; on later pages, only reuse the exact `next_cursor` returned by Hoodit for the same wallet.
 
-Tool arguments are exact: use 0x contract addresses where a tool asks for a token, except `hoodit_get_holding` also accepts the literal `native`. Pool IDs are opaque values copied from Hoodit results, USD thresholds are decimal strings, candle `before` values are Unix seconds, and basis points mean 100 = 1% and 10000 = 100%. Omit optional arguments when their defaults match the request; do not send explicit JSON null.
+Tool arguments are exact: use 0x contract addresses where a tool asks for a token, except `hoodit_get_holding` also accepts the literal `native`. Pool IDs are opaque values copied from Hoodit results, USD thresholds are decimal strings, candle `before` values are Unix seconds, and basis points mean 100 = 1% and 10000 = 100%. Omit optional arguments when their defaults match the request; the portfolio cursor is the one intentional nullable exception.
 
 For an actual trade, use inherited `lifi_swap`. Resolve stock intent with `robinhood_stocks`; use exact contracts for non-stock tokens. Prepare with `lifi_prepare_swap_batch`, preserve returned drafts, stage and commit under host policy, and report verified wallet or receipt state. A Hoodit read never stages, signs, or broadcasts.
 

@@ -7,7 +7,7 @@ pub mod tools;
 
 const PREAMBLE: &str = include_str!("preamble.md");
 dyn_aomi_app!(
-    app = app::HooditApp, name = "hoodit", version = "1.1.3", preamble = PREAMBLE,
+    app = app::HooditApp, name = "hoodit", version = "1.1.4", preamble = PREAMBLE,
     tools = [], secrets = [], namespaces = ["aomi-core", "evm-core"],
     skills = [
         { id: "hoodit/markets", description: "Research Robinhood Chain tokens, pools, candles, and public trades", tags: ["markets", "tokens", "research"], tools: [tools::SearchTokens, tools::DiscoverPools, tools::GetToken, tools::GetCandles, tools::GetTrades], sections: { instructions: "skills/markets.md" }, },
@@ -22,7 +22,7 @@ mod tests {
     #[test]
     fn manifest_has_only_skill_owned_v1_tools() {
         let manifest = app::HooditApp::default().manifest();
-        assert_eq!(manifest.version, "1.1.3");
+        assert_eq!(manifest.version, "1.1.4");
         assert_eq!(manifest.skills.len(), 2);
         assert_eq!(manifest.tools.len(), 7);
         let names = manifest
@@ -55,7 +55,7 @@ mod tests {
         assert!(
             manifest
                 .preamble
-                .contains("For the first portfolio page, omit the `cursor` argument entirely")
+                .contains("For the first portfolio page, pass JSON null as `cursor`")
         );
         assert!(
             manifest

@@ -20,17 +20,19 @@ pub struct PortfolioArgs {
     /// Exact public 0x wallet address on Robinhood Chain. For "my wallet",
     /// resolve the funded executor with get_account_info on chain 4663 first.
     pub wallet_address: String,
-    /// Opaque continuation returned by the previous portfolio response. Omit
-    /// this field entirely for the first page: do not send JSON null, an empty
-    /// string, or the string "null". For later pages, reuse only the exact
-    /// next_cursor returned for this wallet; never invent a cursor.
+    /// Opaque continuation returned by the previous portfolio response. Use
+    /// JSON null for the first page (or omit the field when the client permits
+    /// omission). For later pages, reuse only the exact next_cursor returned
+    /// for this wallet; never invent a cursor or placeholder.
     #[serde(
         default,
         deserialize_with = "first_page_cursor",
         skip_serializing_if = "Option::is_none"
     )]
+    // The host makes every property required for strict function calling, so
+    // this field must retain Option's null type to represent the first page.
     #[schemars(
-        with = "String",
+        with = "Option<String>",
         length(min = 1, max = 4096),
         pattern(r"^[A-Za-z0-9_-]+$")
     )]
@@ -53,7 +55,7 @@ impl DynAomiTool for GetPortfolio {
     type App = HooditApp;
     type Args = PortfolioArgs;
     const NAME: &'static str = "hoodit_get_portfolio";
-    const DESCRIPTION: &'static str = "Read one public Robinhood Chain wallet inventory page. Use for a portfolio or all-token balance request; omit cursor on the first page and only reuse this tool's next_cursor for the same wallet. Optional quotes are estimates, and the result contains no cost basis, P&L, or transaction history.";
+    const DESCRIPTION: &'static str = "Read one public Robinhood Chain wallet inventory page. Use JSON null for cursor on the first page, then only reuse this tool's exact next_cursor for the same wallet. Never invent a cursor or placeholder. Optional quotes are estimates, and the result contains no cost basis, P&L, or transaction history.";
 
     fn run(app: &HooditApp, args: PortfolioArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let mut read = ReadContext::portfolio(args.refresh.unwrap_or(false));

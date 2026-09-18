@@ -5,7 +5,7 @@ This bundle is the canonical public contract for Hoodit’s two skill-owned, sev
 ## Amendments from 1.0.0
 
 - `blockscout` replaces `etherscan`; no paid data subscription is required.
-- `hoodit_get_portfolio` accepts an opaque `cursor` instead of `page`/`page_size`, consumes one Blockscout provider page, and includes native ETH only initially.
+- `hoodit_get_portfolio` accepts an opaque `cursor` instead of `page`/`page_size`, consumes one Blockscout provider page, and includes native ETH only initially. Its first-page cursor is nullable because strict model tool schemas require every declared property; later pages accept only an exact returned continuation.
 - Portfolio reads default to balances only (`include_quotes=false`). Requested valuation is limited to 20 non-USDG quote attempts and a 30-second overall deadline. Unscheduled holdings remain visible with `budget_exhausted` or `deadline_exceeded`.
 - A response contains at most 50 ERC-20 rows plus initial native ETH. Complete-wallet totals require an initial page with no continuation and a successful native read.
 

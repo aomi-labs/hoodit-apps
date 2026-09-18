@@ -106,6 +106,15 @@ The staging smoke adapter retains sanitized legacy `tool_arguments`, emits the
 transcript before failing an assertion, and binds guest tokens to the Chat
 staging origin rather than the Build origin.
 
+On 2026-09-18, a fresh staging turn reproduced a different first-page failure:
+the provider-facing strict tool schema required every declared property, so the
+model supplied `"placeholder"` and then `"x"` for the non-null string cursor.
+Both values were correctly rejected as `INVALID_ARGUMENT`. The application
+contract now exposes only this stateful field as `string | null`: JSON null is
+the first-page value, while non-null strings remain restricted to exact Hoodit
+continuations. Ordinary optional fields with real defaults remain non-null and
+defaulted. This preserves pagination without accepting fabricated cursors.
+
 ## Staging deployment and post-activation status
 
 Source commit `bdc383a6fb5e020afa8dbe2773805f9e8e7235bd` was deployed only to
@@ -133,7 +142,7 @@ An Auto-mode control also completed. That recovered the separate hosted-app
 admission failure; it did not fix the later model-emitted `"null"` cursor, which
 is addressed in v1.1.3 above.
 
-Run the reusable smoke after application `2937810` is active on v1.1.3:
+Run the reusable smoke after application `2937810` is active on v1.1.4:
 
 ```bash
 python3 scripts/hoodit-staging-smoke.py \

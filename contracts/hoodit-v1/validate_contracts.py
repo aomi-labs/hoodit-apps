@@ -179,6 +179,12 @@ def main() -> None:
         raise AssertionError("Portfolio input still exposes numbered pagination")
     if definitions["HooditGetPortfolioInput"]["properties"]["include_quotes"].get("default") is not False:
         raise AssertionError("Portfolio valuation must be opt-in")
+    check(
+        "hoodit_get_portfolio",
+        "input",
+        {"wallet_address": wallet, "cursor": None},
+        valid=True,
+    )
 
     synthetic_assertions = assertions
     implementation_assertions = 0
