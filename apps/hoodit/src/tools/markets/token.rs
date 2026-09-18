@@ -23,7 +23,7 @@ pub struct TokenArgs {
     /// candle, or trade result. Omit to use the token's indexed top pool.
     #[serde(default)]
     #[schemars(
-        with = "String",
+        with = "Option<String>",
         length(min = 1, max = 200),
         pattern(r"^[A-Za-z0-9:_-]+$")
     )]

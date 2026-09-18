@@ -63,7 +63,7 @@ pub struct PortfolioArgs {
     /// Minimum observed USD value to display. Unpriced holdings remain visible
     /// unless include_unpriced=false. Omit for no minimum.
     #[serde(default)]
-    #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    #[schemars(with = "Option<String>", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
     pub min_value_usd: Option<String>,
     /// Keep unpriced holdings visible when a value filter is used. Omit for true.
     #[serde(default)]

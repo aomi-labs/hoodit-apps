@@ -21,7 +21,7 @@ pub struct CandlesArgs {
     /// token's indexed top pool. Candles cover only the selected pool.
     #[serde(default)]
     #[schemars(
-        with = "String",
+        with = "Option<String>",
         length(min = 1, max = 200),
         pattern(r"^[A-Za-z0-9:_-]+$")
     )]
@@ -33,7 +33,7 @@ pub struct CandlesArgs {
     /// Exclusive historical cutoff as a Unix timestamp in whole UTC seconds.
     /// Omit to use the current time. Never pass milliseconds or a future time.
     #[serde(default)]
-    #[schemars(with = "i64")]
+    #[schemars(with = "Option<i64>")]
     pub before: Option<i64>,
     /// Maximum provider candles before open-candle filtering. Omit for 100.
     #[serde(default)]

@@ -19,7 +19,7 @@ pub struct TokenPoolsArgs {
     pub token: String,
     /// Optional canonical DEX IDs returned by hoodit_get_market_options.
     #[serde(default)]
-    #[schemars(with = "Vec<String>")]
+    #[schemars(with = "Option<Vec<String>>")]
     pub dex_ids: Option<Vec<String>>,
     /// Sort within the scanned provider page. Omit for liquidity.
     #[serde(default)]

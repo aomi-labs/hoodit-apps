@@ -37,6 +37,12 @@ fn allows_null(schema: &Value) -> bool {
 }
 
 fn assert_object_schemas_have_properties(path: &str, schema: &Value) {
+    if schema.get("default").is_some_and(Value::is_null) {
+        assert!(
+            allows_null(schema),
+            "{path} advertises default=null but rejects JSON null: {schema:#}"
+        );
+    }
     if schema.get("type") == Some(&Value::String("object".into())) {
         assert!(
             schema.get("properties").is_some_and(Value::is_object),
@@ -136,10 +142,6 @@ fn generated_manifest_exposes_strict_compatible_skill_inputs() {
         );
         assert_object_schemas_have_properties(name, &tool.parameters_schema);
         for (property, schema) in tool.parameters_schema["properties"].as_object().unwrap() {
-            assert!(
-                (*name == "hoodit_get_portfolio" && property == "cursor") || !allows_null(schema),
-                "{name}.{property} unexpectedly advertises explicit null"
-            );
             assert!(
                 schema["description"]
                     .as_str()

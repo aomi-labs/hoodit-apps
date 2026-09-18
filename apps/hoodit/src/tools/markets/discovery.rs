@@ -24,11 +24,11 @@ use std::str::FromStr;
 pub struct DecimalRange {
     /// Inclusive lower bound as a plain decimal string.
     #[serde(default)]
-    #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    #[schemars(with = "Option<String>", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
     pub min: Option<String>,
     /// Inclusive upper bound as a plain decimal string.
     #[serde(default)]
-    #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    #[schemars(with = "Option<String>", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
     pub max: Option<String>,
 }
 
@@ -37,11 +37,11 @@ pub struct DecimalRange {
 pub struct SignedDecimalRange {
     /// Inclusive lower bound as a signed plain decimal string.
     #[serde(default)]
-    #[schemars(with = "String", pattern(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    #[schemars(with = "Option<String>", pattern(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
     pub min: Option<String>,
     /// Inclusive upper bound as a signed plain decimal string.
     #[serde(default)]
-    #[schemars(with = "String", pattern(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    #[schemars(with = "Option<String>", pattern(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
     pub max: Option<String>,
 }
 
@@ -50,11 +50,11 @@ pub struct SignedDecimalRange {
 pub struct CountRange {
     /// Inclusive lower bound.
     #[serde(default)]
-    #[schemars(with = "u64")]
+    #[schemars(with = "Option<u64>")]
     pub min: Option<u64>,
     /// Inclusive upper bound.
     #[serde(default)]
-    #[schemars(with = "u64")]
+    #[schemars(with = "Option<u64>")]
     pub max: Option<u64>,
 }
 
@@ -63,98 +63,98 @@ pub struct CountRange {
 pub struct DiscoverFilters {
     /// Canonical DEX IDs from hoodit_get_market_options.
     #[serde(default)]
-    #[schemars(with = "Vec<String>")]
+    #[schemars(with = "Option<Vec<String>>")]
     pub dex_ids: Option<Vec<String>>,
     /// Require either side of the pool to match one of these exact contracts.
     #[serde(default)]
-    #[schemars(with = "Vec<String>")]
+    #[schemars(with = "Option<Vec<String>>")]
     pub paired_token_addresses: Option<Vec<String>>,
     /// Pool liquidity in USD.
     #[serde(default)]
-    #[schemars(with = "DecimalRange")]
+    #[schemars(with = "Option<DecimalRange>")]
     pub liquidity_usd: Option<DecimalRange>,
     /// Pool volume in USD for volume_window.
     #[serde(default)]
-    #[schemars(with = "DecimalRange")]
+    #[schemars(with = "Option<DecimalRange>")]
     pub volume_usd: Option<DecimalRange>,
     /// Volume window. Omit for h24.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub volume_window: Option<String>,
     /// Base token fully diluted valuation in USD. Requires enrichment.
     #[serde(default)]
-    #[schemars(with = "DecimalRange")]
+    #[schemars(with = "Option<DecimalRange>")]
     pub fdv_usd: Option<DecimalRange>,
     /// Pool age in hours at evaluation time.
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub pool_age_hours: Option<CountRange>,
     /// Base-token price change in percentage points for price_change_window.
     #[serde(default)]
-    #[schemars(with = "SignedDecimalRange")]
+    #[schemars(with = "Option<SignedDecimalRange>")]
     pub price_change_pct: Option<SignedDecimalRange>,
     /// Price-change window. Omit for h1.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub price_change_window: Option<String>,
     /// Total buys plus sells for activity_window.
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub transactions: Option<CountRange>,
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub buys: Option<CountRange>,
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub sells: Option<CountRange>,
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub buyers: Option<CountRange>,
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub sellers: Option<CountRange>,
     /// Activity-count window. Omit for h24.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub activity_window: Option<String>,
     /// Minimum GeckoTerminal score. Unknown scores fail this filter.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub min_gt_score: Option<String>,
     /// Honeypot behavior. exclude_flagged permits unknown; require_clear
     /// requires at least one explicit clear observation and no conflict.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub honeypot: Option<String>,
     /// Maximum GoPlus tax in percentage points; 5 means 5%, not 0.05.
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub max_buy_tax_pct: Option<String>,
     #[serde(default)]
-    #[schemars(with = "String")]
+    #[schemars(with = "Option<String>")]
     pub max_sell_tax_pct: Option<String>,
     /// Require GeckoTerminal metadata verification. This is not source-code verification.
     #[serde(default)]
-    #[schemars(with = "bool")]
+    #[schemars(with = "Option<bool>")]
     pub require_gt_verified: Option<bool>,
     /// Require GoPlus to explicitly report open source.
     #[serde(default)]
-    #[schemars(with = "bool")]
+    #[schemars(with = "Option<bool>")]
     pub require_open_source: Option<bool>,
     #[serde(default)]
-    #[schemars(with = "CountRange")]
+    #[schemars(with = "Option<CountRange>")]
     pub holder_count: Option<CountRange>,
     /// Top-ten holder concentration in percentage points.
     #[serde(default)]
-    #[schemars(with = "DecimalRange")]
+    #[schemars(with = "Option<DecimalRange>")]
     pub top10_concentration_pct: Option<DecimalRange>,
     /// Require at least one project website or social link in indexed metadata.
     #[serde(default)]
-    #[schemars(with = "bool")]
+    #[schemars(with = "Option<bool>")]
     pub require_social_presence: Option<bool>,
     /// Require an explicit CoinGecko coin identifier in indexed metadata.
     #[serde(default)]
-    #[schemars(with = "bool")]
+    #[schemars(with = "Option<bool>")]
     pub require_coingecko_listed: Option<bool>,
 }
 
@@ -183,7 +183,7 @@ pub struct DiscoverArgs {
     pub min_volume_24h_usd: Option<String>,
     /// Structured strict filters. Unknown values fail explicitly required checks.
     #[serde(default)]
-    #[schemars(with = "DiscoverFilters")]
+    #[schemars(with = "Option<DiscoverFilters>")]
     pub filters: Option<DiscoverFilters>,
     /// Result ordering within the scanned candidates.
     #[serde(default)]
@@ -208,7 +208,7 @@ pub struct DiscoverArgs {
     /// Opaque screened continuation. It is bound to the normalized query.
     #[serde(default)]
     #[schemars(
-        with = "String",
+        with = "Option<String>",
         length(min = 1, max = 8192),
         pattern(r"^[A-Za-z0-9_-]+$")
     )]
