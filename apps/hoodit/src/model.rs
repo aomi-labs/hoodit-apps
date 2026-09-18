@@ -41,6 +41,16 @@ pub fn decimal(value: &str) -> Result<String, String> {
         Ok(v.into())
     }
 }
+pub fn signed_decimal(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    if unsigned.is_empty() {
+        return Err("expected a plain signed decimal string".into());
+    }
+    decimal(unsigned)
+        .map(|_| value.to_string())
+        .map_err(|_| "expected a plain signed decimal string".into())
+}
 pub fn meta(sources: Vec<Value>, warnings: Vec<Value>) -> Value {
     json!({"chain_id":CHAIN_ID,"generated_at":Utc::now().to_rfc3339(),"sources":sources,"warnings":warnings})
 }
@@ -77,7 +87,7 @@ fn envelope(
     warnings: Vec<Value>,
     error: Option<Value>,
 ) -> Value {
-    json!({"schema_version":"1.1.0","status":status,"data":data,"meta":meta(sources,warnings),"error":error})
+    json!({"schema_version":"1.2.0","status":status,"data":data,"meta":meta(sources,warnings),"error":error})
 }
 pub fn token(
     id: &str,

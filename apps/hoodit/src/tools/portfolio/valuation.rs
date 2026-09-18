@@ -4,11 +4,13 @@ use crate::{
     amount,
     app::ReadContext,
     model,
-    providers::{Blockscout, Lifi, ProviderError},
+    providers::{Blockscout, CoinGecko, Gecko, Lifi, ProviderError},
 };
+use bigdecimal::BigDecimal;
 use chrono::Utc;
 use num_traits::Zero;
 use serde_json::{Value, json};
+use std::str::FromStr;
 
 pub(super) struct HoldingInput<'a> {
     pub(super) token_id: &'a str,
@@ -94,9 +96,9 @@ pub(super) fn quote_token(verified: bool) -> Value {
     )
 }
 
+#[cfg(test)]
 pub(super) fn sort_holdings(holdings: &mut [Value]) {
     use std::cmp::Ordering;
-    use std::str::FromStr;
     holdings.sort_by(|left, right| {
         let value = |holding: &Value| {
             model::string(holding, &["valuation", "value_usdg"])
@@ -115,7 +117,6 @@ pub(super) fn sort_holdings(holdings: &mut [Value]) {
 }
 
 pub(super) fn sum_holding_values(holdings: &[Value]) -> Option<String> {
-    use std::str::FromStr;
     let values = holdings
         .iter()
         .filter_map(|holding| model::string(holding, &["valuation", "value_usdg"]))
@@ -131,6 +132,176 @@ pub(super) fn sum_holding_values(holdings: &[Value]) -> Option<String> {
                 .normalized()
                 .to_plain_string(),
         )
+    }
+}
+
+pub(super) fn sum_market_values(holdings: &[Value]) -> Option<String> {
+    sum_values(holdings, "value_usd")
+}
+
+fn sum_values(holdings: &[Value], field: &str) -> Option<String> {
+    use std::str::FromStr;
+    let values = holdings
+        .iter()
+        .filter_map(|holding| model::string(holding, &["valuation", field]))
+        .filter_map(|value| bigdecimal::BigDecimal::from_str(&value).ok())
+        .collect::<Vec<_>>();
+    (!values.is_empty()).then(|| {
+        values
+            .into_iter()
+            .sum::<bigdecimal::BigDecimal>()
+            .normalized()
+            .to_plain_string()
+    })
+}
+
+pub(super) fn apply_market_valuations(
+    holdings: &mut [Value],
+    gecko: &Gecko,
+    coingecko: &CoinGecko,
+    read: &mut ReadContext,
+    warnings: &mut Vec<Value>,
+) {
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    let tokens = holdings
+        .iter()
+        .filter_map(|holding| model::string(holding, &["token", "id"]))
+        .filter(|token| token != "native")
+        .collect::<Vec<_>>();
+    let mut prices = HashMap::<String, String>::new();
+    for batch in tokens.chunks(30) {
+        match gecko.token_prices(batch, read) {
+            Ok(response) => {
+                if let Some(values) = model::get(&response, &["data", "attributes", "token_prices"])
+                    .and_then(Value::as_object)
+                {
+                    for (token, price) in values {
+                        if let Some(price) = price
+                            .as_str()
+                            .map(str::to_string)
+                            .or_else(|| price.as_number().map(ToString::to_string))
+                        {
+                            prices.insert(token.to_ascii_lowercase(), price);
+                        }
+                    }
+                }
+            }
+            Err(_) => warnings.push(model::warning(
+                "MARKET_PRICE_UNAVAILABLE",
+                "A batch of token market prices could not be read",
+            )),
+        }
+    }
+    let native_price = if holdings
+        .iter()
+        .any(|holding| holding["token"]["id"] == "native")
+    {
+        coingecko
+            .eth_price(read)
+            .ok()
+            .and_then(|response| model::string(&response, &["ethereum", "usd"]))
+    } else {
+        None
+    };
+
+    for holding in holdings {
+        let token = model::string(holding, &["token", "id"]).unwrap_or_default();
+        let price = if token == "native" {
+            native_price.clone()
+        } else {
+            prices.get(&token.to_ascii_lowercase()).cloned()
+        };
+        let formatted = model::string(holding, &["balance", "formatted"]);
+        let value = price
+            .as_deref()
+            .and_then(|price| BigDecimal::from_str(price).ok())
+            .zip(
+                formatted
+                    .as_deref()
+                    .and_then(|balance| BigDecimal::from_str(balance).ok()),
+            )
+            .map(|(price, balance)| (price * balance).normalized().to_plain_string());
+        holding["valuation"] = match (price, value) {
+            (Some(price), Some(value)) => json!({
+                "status":"market",
+                "currency":"USD",
+                "unit_price_usd":price,
+                "value_usd":value,
+                "unit_price_usdg":null,
+                "value_usdg":null,
+                "reason":null,
+                "quote":null
+            }),
+            _ if holding["token"]["decimals"].is_null() => json!({
+                "status":"unpriced","currency":"USD","unit_price_usd":null,"value_usd":null,
+                "unit_price_usdg":null,"value_usdg":null,"reason":"unknown_decimals","quote":null
+            }),
+            _ => json!({
+                "status":"unpriced","currency":"USD","unit_price_usd":null,"value_usd":null,
+                "unit_price_usdg":null,"value_usdg":null,"reason":"not_indexed_or_unavailable","quote":null
+            }),
+        };
+    }
+}
+
+pub(super) fn add_allocations(holdings: &mut [Value], denominator_usd: Option<&str>) {
+    use std::str::FromStr;
+    let denominator = denominator_usd.and_then(|value| BigDecimal::from_str(value).ok());
+    for holding in holdings {
+        holding["allocation"] = match (
+            model::string(holding, &["valuation", "value_usd"])
+                .and_then(|value| BigDecimal::from_str(&value).ok()),
+            denominator.as_ref(),
+        ) {
+            (Some(value), Some(denominator)) if !denominator.is_zero() => json!({
+                "percentage":((value / denominator) * BigDecimal::from(100)).with_scale_round(8,bigdecimal::RoundingMode::HalfEven).normalized().to_plain_string(),
+                "denominator_currency":"USD",
+                "denominator_scope":"displayed_priced_holdings"
+            }),
+            _ => {
+                json!({"percentage":null,"denominator_currency":"USD","denominator_scope":"displayed_priced_holdings"})
+            }
+        };
+    }
+}
+
+pub(super) fn sort_holdings_by(holdings: &mut [Value], mode: &str) {
+    if mode == "symbol" {
+        holdings.sort_by(|left, right| {
+            model::string(left, &["token", "symbol"])
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .cmp(
+                    &model::string(right, &["token", "symbol"])
+                        .unwrap_or_default()
+                        .to_ascii_lowercase(),
+                )
+                .then_with(|| {
+                    model::string(left, &["token", "id"])
+                        .cmp(&model::string(right, &["token", "id"]))
+                })
+        });
+    } else {
+        use std::cmp::Ordering;
+        use std::str::FromStr;
+        holdings.sort_by(|left, right| {
+            let value = |holding: &Value| {
+                model::string(holding, &["valuation", "value_usd"])
+                    .or_else(|| model::string(holding, &["valuation", "value_usdg"]))
+                    .and_then(|value| bigdecimal::BigDecimal::from_str(&value).ok())
+            };
+            match (value(left), value(right)) {
+                (Some(left), Some(right)) => right.partial_cmp(&left).unwrap_or(Ordering::Equal),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            }
+            .then_with(|| {
+                model::string(left, &["token", "id"]).cmp(&model::string(right, &["token", "id"]))
+            })
+        });
     }
 }
 
@@ -158,17 +329,17 @@ pub(super) fn make_holding(
     })?;
     let formatted = decimals.map(|d| amount::format(&balance, d));
     let valuation = if balance.is_zero() {
-        json!({"status":"zero_balance","unit_price_usdg":null,"value_usdg":"0","reason":null,"quote":null})
+        json!({"status":"zero_balance","currency":null,"unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":"0","reason":null,"quote":null})
     } else if decimals.is_none() {
         warnings.push(model::warning(
             "UNKNOWN_DECIMALS",
             "Token decimals are unavailable; the raw balance is preserved",
         ));
-        json!({"status":"unpriced","unit_price_usdg":null,"value_usdg":null,"reason":"unknown_decimals","quote":null})
+        json!({"status":"unpriced","currency":null,"unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":"unknown_decimals","quote":null})
     } else if !include_quote {
-        json!({"status":"not_requested","unit_price_usdg":null,"value_usdg":null,"reason":null,"quote":null})
+        json!({"status":"not_requested","currency":null,"unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":null,"quote":null})
     } else if token_id.eq_ignore_ascii_case(model::USDG) {
-        json!({"status":"quote_currency","unit_price_usdg":"1","value_usdg":formatted,"reason":null,"quote":null})
+        json!({"status":"quote_currency","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":"1","value_usdg":formatted,"reason":null,"quote":null})
     } else {
         let sample_amount = amount::fraction(&balance, sample_bps);
         if sample_amount.is_zero() {
@@ -176,13 +347,13 @@ pub(super) fn make_holding(
                 "QUOTE_SIZE_ROUNDS_TO_ZERO",
                 "Requested fraction rounds down to zero atomic units",
             ));
-            json!({"status":"unpriced","unit_price_usdg":null,"value_usdg":null,"reason":"rounds_to_zero","quote":null})
+            json!({"status":"unpriced","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":"rounds_to_zero","quote":null})
         } else if *quote_attempts >= 20 {
             warnings.push(model::warning(
                 "QUOTE_BUDGET_EXHAUSTED",
                 "At most twenty non-USDG quotes are attempted per response",
             ));
-            json!({"status":"unpriced","unit_price_usdg":null,"value_usdg":null,"reason":"budget_exhausted","quote":null})
+            json!({"status":"unpriced","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":"budget_exhausted","quote":null})
         } else {
             *quote_attempts += 1;
             let from_token = if token_id == "native" {
@@ -201,14 +372,14 @@ pub(super) fn make_holding(
                             6,
                         )
                         .unwrap();
-                        json!({"status":"quoted","unit_price_usdg":unit_price_usdg,"value_usdg":value_usdg,"reason":null,"quote":{"input_amount":{"atomic":sample_amount.to_string(),"formatted":decimals.map(|decimals|amount::format(&sample_amount,decimals))},"expected_output":{"atomic":output_amount.to_string(),"formatted":amount::format(&output_amount,6)},"minimum_output":{"atomic":minimum_output_amount.to_string(),"formatted":amount::format(&minimum_output_amount,6)},"route_name":model::string(&quote,&["tool"]),"gas_cost_usd":sum_gas_cost_usd(&quote),"quoted_at":Utc::now().to_rfc3339(),"slippage_bps":50,"preflighted":false}})
+                        json!({"status":"quoted","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":unit_price_usdg,"value_usdg":value_usdg,"reason":null,"quote":{"input_amount":{"atomic":sample_amount.to_string(),"formatted":decimals.map(|decimals|amount::format(&sample_amount,decimals))},"expected_output":{"atomic":output_amount.to_string(),"formatted":amount::format(&output_amount,6)},"minimum_output":{"atomic":minimum_output_amount.to_string(),"formatted":amount::format(&minimum_output_amount,6)},"route_name":model::string(&quote,&["tool"]),"gas_cost_usd":sum_gas_cost_usd(&quote),"quoted_at":Utc::now().to_rfc3339(),"slippage_bps":50,"preflighted":false}})
                     }
                     _ => {
                         warnings.push(model::warning(
                             "QUOTE_UNAVAILABLE",
                             "LI.FI returned an inconsistent quote",
                         ));
-                        json!({"status":"unpriced","unit_price_usdg":null,"value_usdg":null,"reason":"quote_unavailable","quote":null})
+                        json!({"status":"unpriced","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":"quote_unavailable","quote":null})
                     }
                 },
                 Err(error) => {
@@ -232,7 +403,7 @@ pub(super) fn make_holding(
                         },
                         "A requested holding valuation was unavailable",
                     ));
-                    json!({"status":"unpriced","unit_price_usdg":null,"value_usdg":null,"reason":reason,"quote":null})
+                    json!({"status":"unpriced","currency":"USDG","unit_price_usd":null,"value_usd":null,"unit_price_usdg":null,"value_usdg":null,"reason":reason,"quote":null})
                 }
             }
         }
@@ -364,5 +535,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["d", "a", "c", "b"]
         );
+    }
+
+    #[test]
+    fn allocations_use_only_the_disclosed_priced_denominator() {
+        let mut holdings = vec![
+            json!({"valuation":{"value_usd":"75"}}),
+            json!({"valuation":{"value_usd":"25"}}),
+            json!({"valuation":{"value_usd":null}}),
+        ];
+        add_allocations(&mut holdings, Some("100"));
+        assert_eq!(holdings[0]["allocation"]["percentage"], "75");
+        assert_eq!(holdings[1]["allocation"]["percentage"], "25");
+        assert!(holdings[2]["allocation"]["percentage"].is_null());
     }
 }

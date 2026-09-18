@@ -1,14 +1,15 @@
-# Hoodit v1.1.0 implementation contract and Rust structure
+# Hoodit v1.2.0 implementation contract and Rust structure
 
 The public tool surface is exactly `hoodit_search_tokens`,
-`hoodit_discover_pools`, `hoodit_get_token`, `hoodit_get_candles`,
-`hoodit_get_trades`, `hoodit_get_portfolio`, and `hoodit_get_holding`.
+`hoodit_discover_pools`, `hoodit_get_token`, `hoodit_get_token_pools`,
+`hoodit_get_market_options`, `hoodit_get_candles`, `hoodit_get_trades`,
+`hoodit_get_portfolio`, and `hoodit_get_holding`.
 
-Reviewed 2026-09-17 against Hoodit commit `30f8347b2e1d08732528eb417d49b3e918b8575f` and the supplied `hoodit-v1-plan.zip`.
+Originally reviewed 2026-09-17 against Hoodit commit `30f8347b2e1d08732528eb417d49b3e918b8575f` and the supplied `hoodit-v1-plan.zip`.
 
-This defines the amended v1.1.0 implementation contract; deployment acceptance remains separate. The repository is at exactly the plan's starting revision. The user's no-paid-subscriptions instruction supersedes the attachment's paid Etherscan decision. Proposed contract amendments below must be applied together to the schemas, examples, prose and Rust implementation; the attached 1.0.0 schema does not already describe them.
+This preserves the historical design review and records the amended v1.2.0 implementation contract; deployment acceptance remains separate. Statements below about the “current” pre-v1 repository, proposed file layout, and seven-tool baseline describe the original review point, not the finished v1.2.0 source. The canonical current wire contract is `tool-contracts.json`, and current evidence is in `../../docs/hoodit-v1-validation.md`.
 
-**Recommendation:** keep the seven read tools, two skills, single Rust crate, and inherited execution workflow. Replace Etherscan with Blockscout's free authenticated API. Prove provider access and one complete host trading path before implementing all the reads. Most work belongs in `apps/hoodit`; no new backend crate, indexer, database or frontend rewrite is justified.
+**Implemented 1.2 amendment:** keep nine read tools, two skills, one Rust crate, and the inherited execution workflow. Market research now includes free bounded strict screening, current DEX options, token security/ownership evidence, and exact-token pool comparison. Portfolio reads add separate USD market and USDG quote-sample modes, allocation denominators, compact security context, and preserved exact sizing. No new backend crate, indexer, database, paid subscription, or frontend rewrite is required.
 
 ## Current state and what to retain
 
@@ -53,7 +54,7 @@ Secrets: declare `BLOCKSCOUT_API_KEY` and `LIFI_API_KEY` as optional at app load
 1. **Blockscout inventory requires a pagination redesign.** Its REST `/addresses/{address}/tokens?type=ERC-20` returns `items` and `next_page_params`, not Etherscan page/offset semantics. Do not fetch pages 1…N to emulate random access, truncate and lose rows, or rely on an in-memory page-number map that breaks after restart. [Official REST specification](https://github.com/blockscout/blockscout-api-v2-swagger/blob/main/swagger.yaml)
 2. **Raw balance arithmetic cannot use the current decimal implementation.** ERC-20 balances may use all 256 bits; the plan also asks for 36 fractional digits for derived ratios. Use bounded arbitrary-precision integer/rational arithmetic. `rust_decimal` is not the universal balance/valuation type for this contract.
 3. **The original 20-row cap and LI.FI budget are separate concepts.** Blockscout's provider page may be 50 rows. Read and retain the entire provider page; independently bound valuation requests. Do not assume it accepts `page_size=20` without evidence.
-4. **“Everything is frozen” conflicts with the requested provider change.** Replace `etherscan` provenance, paid-key errors/examples, pagination and limits together. Version the amended draft (proposed `1.1.0`) instead of quietly making responses violate `1.0.0`.
+4. **“Everything is frozen” conflicts with the requested provider change.** Replace `etherscan` provenance, paid-key errors/examples, pagination and limits together. Version the amended draft (proposed `1.2.0`) instead of quietly making responses violate `1.0.0`.
 5. **Default wallet reads should be fast.** Proposed change: `include_quotes=false` by default for portfolio, with explicit quote requests when the user asks for value. Preserve `get_holding`'s explicit fractional estimate; use `include_quote=false` for an actual fractional sell before fresh host preparation. This is a recommendation to amend the attachment, not an existing contract default.
 6. **Stock data is a real product removal.** The inherited stock skill supplies canonical resolution, not replacement underlying bid/ask, corporate actions or multipliers. Confirm their removal. The new preamble must not retain the old mandatory snapshot call. If official reference data remains wanted, reconsider the seven-tool scope deliberately.
 7. **Schema defaults do not enforce runtime semantics.** Defaulted Rust fields must reject explicit `null` if the contract only permits omission. Address/decimal newtypes must validate on deserialization; `JsonSchema` alone does not validate argument values. Require unknown-field rejection in tool inputs, while allowing upstream additive fields in provider DTOs.
@@ -67,7 +68,7 @@ Secrets: declare `BLOCKSCOUT_API_KEY` and `LIFI_API_KEY` as optional at app load
 flowchart TD
   UI["Existing web widget / Telegram"] --> HOST["Aomi host · session + funded account"]
   HOST --> MAN["Hoodit manifest + two skills"]
-  MAN --> MT["5 market tool adapters"]
+  MAN --> MT["7 market tool adapters"]
   MAN --> PT["2 portfolio tool adapters"]
   MT --> MS["Markets · token/pool selection + normalization"]
   PT --> PS["Portfolio · balances + exact sizing + totals"]

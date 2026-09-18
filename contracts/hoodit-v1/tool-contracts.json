@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:hoodit:tool-contracts:1.1.0",
+  "$id": "urn:hoodit:tool-contracts:1.2.0",
   "title": "Hoodit v1 read-tool contracts",
-  "description": "Amended 2026-09-17 contract for seven read-only Hoodit v1 tools using Blockscout inventory continuations and bounded optional valuation.",
-  "x-contract-version": "1.1.0",
+  "description": "Amended 2026-09-18 contract for nine read-only Hoodit tools covering bounded market screening, token security and ownership, pool comparison, wallet exposure, and exact sizing.",
+  "x-contract-version": "1.2.0",
   "x-tools": [
     {
       "name": "hoodit_search_tokens",
@@ -45,6 +45,34 @@
       },
       "data_schema": {
         "$ref": "#/$defs/HooditGetTokenData"
+      }
+    },
+    {
+      "name": "hoodit_get_token_pools",
+      "skill": "hoodit/markets",
+      "description": "Compare indexed pools containing one exact Robinhood Chain token with canonical DEX filtering and scoped local ordering.",
+      "input_schema": {
+        "$ref": "#/$defs/HooditGetTokenPoolsInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/HooditGetTokenPoolsOutput"
+      },
+      "data_schema": {
+        "$ref": "#/$defs/HooditGetTokenPoolsData"
+      }
+    },
+    {
+      "name": "hoodit_get_market_options",
+      "skill": "hoodit/markets",
+      "description": "List canonical DEX IDs and the filters, sorts, windows, and free-versus-paid discovery capabilities currently available.",
+      "input_schema": {
+        "$ref": "#/$defs/HooditGetMarketOptionsInput"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/HooditGetMarketOptionsOutput"
+      },
+      "data_schema": {
+        "$ref": "#/$defs/HooditGetMarketOptionsData"
       }
     },
     {
@@ -179,8 +207,64 @@
         "trending",
         "new",
         "top_volume",
-        "top_activity"
+        "top_activity",
+        "screened"
       ]
+    },
+    "DecimalRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "$ref": "#/$defs/Decimal" },
+        "max": { "$ref": "#/$defs/Decimal" }
+      }
+    },
+    "SignedDecimalRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "$ref": "#/$defs/SignedDecimal" },
+        "max": { "$ref": "#/$defs/SignedDecimal" }
+      }
+    },
+    "CountRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "DiscoveryFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dex_ids": { "type": "array", "items": { "type": "string" }, "maxItems": 20 },
+        "paired_token_addresses": { "type": "array", "items": { "$ref": "#/$defs/Address" }, "maxItems": 20 },
+        "liquidity_usd": { "$ref": "#/$defs/DecimalRange" },
+        "volume_usd": { "$ref": "#/$defs/DecimalRange" },
+        "volume_window": { "enum": ["m5", "m15", "m30", "h1", "h6", "h24"] },
+        "fdv_usd": { "$ref": "#/$defs/DecimalRange" },
+        "pool_age_hours": { "$ref": "#/$defs/CountRange" },
+        "price_change_pct": { "$ref": "#/$defs/SignedDecimalRange" },
+        "price_change_window": { "enum": ["m5", "m15", "m30", "h1", "h6", "h24"] },
+        "transactions": { "$ref": "#/$defs/CountRange" },
+        "buys": { "$ref": "#/$defs/CountRange" },
+        "sells": { "$ref": "#/$defs/CountRange" },
+        "buyers": { "$ref": "#/$defs/CountRange" },
+        "sellers": { "$ref": "#/$defs/CountRange" },
+        "activity_window": { "enum": ["m5", "m15", "m30", "h1", "h6", "h24"] },
+        "min_gt_score": { "$ref": "#/$defs/Decimal" },
+        "honeypot": { "enum": ["any", "exclude_flagged", "require_clear"] },
+        "max_buy_tax_pct": { "$ref": "#/$defs/Decimal" },
+        "max_sell_tax_pct": { "$ref": "#/$defs/Decimal" },
+        "require_gt_verified": { "type": "boolean" },
+        "require_open_source": { "type": "boolean" },
+        "holder_count": { "$ref": "#/$defs/CountRange" },
+        "top10_concentration_pct": { "$ref": "#/$defs/DecimalRange" },
+        "require_social_presence": { "type": "boolean" },
+        "require_coingecko_listed": { "type": "boolean" }
+      }
     },
     "Source": {
       "type": "object",
@@ -190,6 +274,8 @@
           "type": "string",
           "enum": [
             "geckoterminal",
+            "goplus",
+            "coingecko",
             "blockscout",
             "lifi",
             "hoodit"
@@ -198,7 +284,7 @@
         "resource": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 120
+          "maxLength": 4096
         },
         "fetched_at": {
           "$ref": "#/$defs/Time"
@@ -246,7 +332,12 @@
             "POOL_STATS_BASE_ONLY",
             "QUOTE_SIZE_ROUNDS_TO_ZERO",
             "QUOTE_BUDGET_EXHAUSTED",
-            "DEADLINE_EXCEEDED"
+            "DEADLINE_EXCEEDED",
+            "SECURITY_DATA_UNAVAILABLE",
+            "POOL_COVERAGE_PARTIAL",
+            "SCAN_BOUND_REACHED",
+            "ENRICHMENT_BOUND_REACHED",
+            "MARKET_PRICE_UNAVAILABLE"
           ]
         },
         "message": {
@@ -1164,10 +1255,27 @@
           "type": "string",
           "enum": [
             "quoted",
+            "market",
             "quote_currency",
             "unpriced",
             "not_requested",
             "zero_balance"
+          ]
+        },
+        "currency": {
+          "type": ["string", "null"],
+          "enum": ["USD", "USDG", null]
+        },
+        "unit_price_usd": {
+          "anyOf": [
+            { "$ref": "#/$defs/Decimal" },
+            { "type": "null" }
+          ]
+        },
+        "value_usd": {
+          "anyOf": [
+            { "$ref": "#/$defs/Decimal" },
+            { "type": "null" }
           ]
         },
         "unit_price_usdg": {
@@ -1201,7 +1309,8 @@
                 "unknown_decimals",
                 "rounds_to_zero",
                 "budget_exhausted",
-                "deadline_exceeded"
+                "deadline_exceeded",
+                "not_indexed_or_unavailable"
               ]
             },
             {
@@ -1353,7 +1462,8 @@
                   "unknown_decimals",
                   "rounds_to_zero",
                   "budget_exhausted",
-                  "deadline_exceeded"
+                  "deadline_exceeded",
+                  "not_indexed_or_unavailable"
                 ]
               },
               "quote": {
@@ -1376,6 +1486,21 @@
         },
         "valuation": {
           "$ref": "#/$defs/Valuation"
+        },
+        "allocation": {
+          "type": "object"
+        },
+        "security": {
+          "type": "object"
+        },
+        "ownership": {
+          "type": "object"
+        },
+        "security_coverage": {
+          "type": "object"
+        },
+        "liquidity_context": {
+          "type": ["object", "null"]
         }
       },
       "required": [
@@ -1411,6 +1536,12 @@
           "minimum": 0,
           "maximum": 51
         },
+        "display_scope": { "type": "string" },
+        "filtered_out_count": { "type": "integer", "minimum": 0, "maximum": 51 },
+        "priced_value_usd": { "anyOf": [{ "$ref": "#/$defs/Decimal" }, { "type": "null" }] },
+        "total_value_usd": { "anyOf": [{ "$ref": "#/$defs/Decimal" }, { "type": "null" }] },
+        "allocation_denominator": { "type": "string" },
+        "top_exposures": { "type": "array", "items": { "type": "object" }, "maxItems": 5 },
         "priced_value_usdg": {
           "anyOf": [
             {
@@ -1492,7 +1623,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -1590,7 +1721,15 @@
         "min_volume_24h_usd": {
           "$ref": "#/$defs/Decimal",
           "default": "0"
-        }
+        },
+        "filters": { "$ref": "#/$defs/DiscoveryFilters" },
+        "sort": { "enum": ["feed", "liquidity", "volume_24h", "created_at", "price_change"], "default": "feed" },
+        "direction": { "enum": ["asc", "desc"], "default": "desc" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 },
+        "max_pages": { "type": "integer", "minimum": 1, "maximum": 3, "default": 1 },
+        "deduplicate_tokens": { "type": "boolean", "default": false },
+        "cursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 8192 },
+        "refresh": { "type": "boolean", "default": false }
       },
       "required": []
     },
@@ -1617,15 +1756,19 @@
         "min_volume_24h_usd": {
           "$ref": "#/$defs/Decimal"
         },
+        "filters": { "type": "object" },
+        "sort": { "enum": ["feed", "liquidity", "volume_24h", "created_at", "price_change"] },
+        "direction": { "enum": ["asc", "desc"] },
         "pools": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/Pool"
-          },
+          "items": { "type": "object" },
           "maxItems": 20
         },
         "pagination": {
-          "$ref": "#/$defs/Pagination"
+          "type": "object"
+        },
+        "coverage": {
+          "type": "object"
         }
       },
       "required": [
@@ -1642,7 +1785,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -1728,6 +1871,18 @@
         "include_metadata": {
           "type": "boolean",
           "default": false
+        },
+        "security": {
+          "enum": ["none", "summary", "full"],
+          "default": "summary"
+        },
+        "include_holders": {
+          "type": "boolean",
+          "default": false
+        },
+        "refresh": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -1803,10 +1958,8 @@
         },
         "other_pools": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/PoolRef"
-          },
-          "maxItems": 4
+          "items": { "type": "object" },
+          "maxItems": 8
         },
         "metadata": {
           "anyOf": [
@@ -1817,7 +1970,12 @@
               "type": "null"
             }
           ]
-        }
+        },
+        "security": { "type": "object" },
+        "ownership": { "type": "object" },
+        "liquidity_security": { "type": "object" },
+        "community": { "type": ["object", "null"] },
+        "coverage": { "type": "object" }
       },
       "required": [
         "token",
@@ -1836,7 +1994,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -1908,6 +2066,84 @@
           }
         }
       ]
+    },
+    "HooditGetTokenPoolsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token": { "$ref": "#/$defs/Address" },
+        "dex_ids": { "type": "array", "items": { "type": "string" }, "maxItems": 20 },
+        "sort": { "enum": ["liquidity", "volume_24h", "created_at", "price"], "default": "liquidity" },
+        "direction": { "enum": ["asc", "desc"], "default": "desc" },
+        "page": { "type": "integer", "minimum": 1, "maximum": 10, "default": 1 },
+        "refresh": { "type": "boolean", "default": false }
+      },
+      "required": ["token"]
+    },
+    "HooditGetTokenPoolsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token": { "$ref": "#/$defs/Address" },
+        "dex_ids": { "type": "array", "items": { "type": "string" } },
+        "sort": { "enum": ["liquidity", "volume_24h", "created_at", "price"] },
+        "direction": { "enum": ["asc", "desc"] },
+        "pools": { "type": "array", "items": { "$ref": "#/$defs/Pool" }, "maxItems": 20 },
+        "pagination": { "type": "object" },
+        "coverage": { "type": "object" }
+      },
+      "required": ["token", "dex_ids", "sort", "direction", "pools", "pagination", "coverage"]
+    },
+    "HooditGetTokenPoolsOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": "1.2.0" },
+        "status": { "enum": ["ok", "partial", "error"] },
+        "data": { "anyOf": [{ "$ref": "#/$defs/HooditGetTokenPoolsData" }, { "type": "null" }] },
+        "meta": { "$ref": "#/$defs/Meta" },
+        "error": { "anyOf": [{ "$ref": "#/$defs/ToolError" }, { "type": "null" }] }
+      },
+      "required": ["schema_version", "status", "data", "meta", "error"],
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "error" } } },
+        "then": { "properties": { "data": { "type": "null" }, "error": { "$ref": "#/$defs/ToolError" } } },
+        "else": { "properties": { "data": { "$ref": "#/$defs/HooditGetTokenPoolsData" }, "error": { "type": "null" } } }
+      }]
+    },
+    "HooditGetMarketOptionsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "refresh": { "type": "boolean", "default": false }
+      }
+    },
+    "HooditGetMarketOptionsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": { "type": "object" },
+        "dexes": { "type": "array", "items": { "type": "object" } },
+        "discovery": { "type": "object" }
+      },
+      "required": ["network", "dexes", "discovery"]
+    },
+    "HooditGetMarketOptionsOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": "1.2.0" },
+        "status": { "enum": ["ok", "partial", "error"] },
+        "data": { "anyOf": [{ "$ref": "#/$defs/HooditGetMarketOptionsData" }, { "type": "null" }] },
+        "meta": { "$ref": "#/$defs/Meta" },
+        "error": { "anyOf": [{ "$ref": "#/$defs/ToolError" }, { "type": "null" }] }
+      },
+      "required": ["schema_version", "status", "data", "meta", "error"],
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "error" } } },
+        "then": { "properties": { "data": { "type": "null" }, "error": { "$ref": "#/$defs/ToolError" } } },
+        "else": { "properties": { "data": { "$ref": "#/$defs/HooditGetMarketOptionsData" }, "error": { "type": "null" } } }
+      }]
     },
     "HooditGetCandlesInput": {
       "type": "object",
@@ -1997,7 +2233,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -2089,6 +2325,10 @@
         "min_volume_usd": {
           "$ref": "#/$defs/Decimal",
           "default": "0"
+        },
+        "side": {
+          "enum": ["buy", "sell", "both"],
+          "default": "both"
         }
       },
       "required": [
@@ -2105,6 +2345,10 @@
         "pool": {
           "$ref": "#/$defs/PoolRef"
         },
+        "side": {
+          "type": "string",
+          "enum": ["buy", "sell", "both"]
+        },
         "trades": {
           "type": "array",
           "items": {
@@ -2112,6 +2356,7 @@
           },
           "maxItems": 100
         },
+        "summary": { "type": "object" },
         "coverage": {
           "type": "object",
           "additionalProperties": false,
@@ -2124,6 +2369,11 @@
             },
             "provider_trade_cap": {
               "const": 300
+            },
+            "matched_before_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300
             },
             "returned": {
               "type": "integer",
@@ -2155,7 +2405,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -2249,6 +2499,25 @@
           "type": "boolean",
           "default": false
         },
+        "valuation": {
+          "enum": ["none", "market", "quote_sample"],
+          "default": "none"
+        },
+        "security": {
+          "enum": ["none", "summary"],
+          "default": "none"
+        },
+        "sort": {
+          "enum": ["value_desc", "symbol"],
+          "default": "value_desc"
+        },
+        "min_value_usd": {
+          "$ref": "#/$defs/Decimal"
+        },
+        "include_unpriced": {
+          "type": "boolean",
+          "default": true
+        },
         "refresh": {
           "type": "boolean",
           "default": false
@@ -2265,6 +2534,8 @@
         "wallet_address": {
           "$ref": "#/$defs/Address"
         },
+        "valuation_mode": { "enum": ["none", "market", "quote_sample"] },
+        "security_mode": { "enum": ["none", "summary"] },
         "quote_token": {
           "$ref": "#/$defs/Token"
         },
@@ -2283,6 +2554,9 @@
         },
         "summary": {
           "$ref": "#/$defs/PortfolioSummary"
+        },
+        "coverage": {
+          "type": "object"
         }
       },
       "required": [
@@ -2299,7 +2573,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -2392,6 +2666,10 @@
           "type": "boolean",
           "default": false
         },
+        "security": {
+          "enum": ["none", "summary"],
+          "default": "none"
+        },
         "refresh": {
           "type": "boolean",
           "default": true
@@ -2422,7 +2700,10 @@
         },
         "sell_amount": {
           "$ref": "#/$defs/Amount"
-        }
+        },
+        "security": { "type": "object" },
+        "ownership": { "type": "object" },
+        "liquidity_context": { "type": ["object", "null"] }
       },
       "required": [
         "wallet_address",
@@ -2437,7 +2718,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "status": {
           "type": "string",
@@ -2521,6 +2802,16 @@
           "maximum": 50,
           "description": "Valid nonzero ERC-20 rows; native ETH is not counted."
         },
+        "provider_rows_returned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "displayed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 51
+        },
         "next_cursor": {
           "anyOf": [
             {
@@ -2536,7 +2827,6 @@
         }
       },
       "required": [
-        "returned",
         "next_cursor"
       ]
     }

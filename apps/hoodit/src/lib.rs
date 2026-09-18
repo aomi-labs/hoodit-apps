@@ -7,11 +7,11 @@ pub mod tools;
 
 const PREAMBLE: &str = include_str!("preamble.md");
 dyn_aomi_app!(
-    app = app::HooditApp, name = "hoodit", version = "1.1.4", preamble = PREAMBLE,
+    app = app::HooditApp, name = "hoodit", version = "1.2.0", preamble = PREAMBLE,
     tools = [], secrets = [], namespaces = ["aomi-core", "evm-core"],
     skills = [
-        { id: "hoodit/markets", description: "Research Robinhood Chain tokens, pools, candles, and public trades", tags: ["markets", "tokens", "research"], tools: [tools::SearchTokens, tools::DiscoverPools, tools::GetToken, tools::GetCandles, tools::GetTrades], sections: { instructions: "skills/markets.md" }, },
-        { id: "hoodit/portfolio", description: "Read exact public Robinhood Chain wallet balances and optional estimates", tags: ["wallet", "portfolio", "balances"], tools: [tools::GetPortfolio, tools::GetHolding], sections: { instructions: "skills/portfolio.md" }, },
+        { id: "hoodit/markets", description: "Research Robinhood Chain token identity, security and ownership evidence, pool discovery and comparison, prices, liquidity, candles, and public trades", tags: ["markets", "tokens", "security", "pools", "research", "discovery"], tools: [tools::SearchTokens, tools::DiscoverPools, tools::GetToken, tools::GetTokenPools, tools::GetMarketOptions, tools::GetCandles, tools::GetTrades], sections: { instructions: "skills/markets.md" }, },
+        { id: "hoodit/portfolio", description: "Inspect exact Robinhood Chain wallet holdings, valuations, exposures, token risks, and fractional sell sizing without executing a trade", tags: ["wallet", "portfolio", "balances", "valuation", "exposure", "risk"], tools: [tools::GetPortfolio, tools::GetHolding], sections: { instructions: "skills/portfolio.md" }, },
     ],
 );
 
@@ -22,15 +22,15 @@ mod tests {
     #[test]
     fn manifest_has_only_skill_owned_v1_tools() {
         let manifest = app::HooditApp::default().manifest();
-        assert_eq!(manifest.version, "1.1.4");
+        assert_eq!(manifest.version, "1.2.0");
         assert_eq!(manifest.skills.len(), 2);
-        assert_eq!(manifest.tools.len(), 7);
+        assert_eq!(manifest.tools.len(), 9);
         let names = manifest
             .tools
             .iter()
             .map(|t| t.name.as_str())
             .collect::<HashSet<_>>();
-        assert_eq!(names.len(), 7);
+        assert_eq!(names.len(), 9);
         assert!(
             !names
                 .iter()
@@ -43,24 +43,21 @@ mod tests {
                 .all(|t| t.parameters_schema["additionalProperties"] == false)
         );
         assert!(manifest.secrets.as_ref().is_none_or(Vec::is_empty));
-        assert!(!manifest.preamble.contains("supply an API key"));
-        assert!(
-            manifest
-                .preamble
-                .contains("Never ask a user to supply a Blockscout or LI.FI API key")
-        );
-        assert!(manifest.preamble.contains(
-            "Do not check or request provider credentials before calling Hoodit read tools"
-        ));
-        assert!(
-            manifest
-                .preamble
-                .contains("For the first portfolio page, pass JSON null as `cursor`")
-        );
-        assert!(
-            manifest
-                .preamble
-                .contains("candle `before` values are Unix seconds")
-        );
+        for forbidden in [
+            "hoodit_",
+            "GeckoTerminal",
+            "Blockscout",
+            "LI.FI",
+            "cursor",
+            "basis points",
+            "activate",
+        ] {
+            assert!(
+                !manifest.preamble.contains(forbidden),
+                "tool-specific guidance leaked into preamble: {forbidden}"
+            );
+        }
+        assert!(manifest.preamble.contains("operator-managed"));
+        assert!(manifest.preamble.contains("host authorization"));
     }
 }

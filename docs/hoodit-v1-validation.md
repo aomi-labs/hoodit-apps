@@ -1,161 +1,90 @@
-# Hoodit v1 validation record
+# Hoodit v1.2 validation record
 
-Validated locally and against staging on 2026-09-17. This record separates
-contract and build checks, direct live-provider reads, and deployed chat
-evidence. No wallet transaction was prepared, signed, broadcast, or simulated
-by these checks.
+Validated on 2026-09-18. This record separates deterministic source checks,
+direct read-only provider checks, and deployment acceptance. None of these
+checks prepared, signed, broadcast, or simulated a wallet transaction.
 
-## Contract and frontend checks
+## Source and contract checks
+
+Run from the repository root:
 
 ```bash
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+aomi-build sdk check --path .
+aomi-build compile --app hoodit --release
+aomi-build manifest --lib plugins/hoodit.so
 python3 contracts/hoodit-v1/validate_contracts.py
-PATH=/home/aron/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH npm test
-npm run lint
-npm run build
+
 fixture_dir=$(mktemp -d)
-HOODIT_CONTRACT_FIXTURE_DIR="$fixture_dir" cargo test --workspace
-python3 contracts/hoodit-v1/validate_contracts.py --implementation-fixtures "$fixture_dir"
+HOODIT_CONTRACT_FIXTURE_DIR="$fixture_dir" \
+  cargo test --test contracts emits_one_success_envelope_for_every_tool
+python3 contracts/hoodit-v1/validate_contracts.py \
+  --implementation-fixtures "$fixture_dir"
 ```
 
-Results at the time of this record:
+Results:
 
-- `cargo test --workspace --locked` passed 19 unit tests and three contract
-  tests. Formatting and `cargo clippy --workspace --all-targets -- -D warnings`
-  also passed independently.
-- The SDK 5.1.0 compile and manifest checks passed. The manifest contains
-  exactly seven tool descriptors, two app skills, and no user-declared secret
-  slots. Blockscout is resolved only from the host-injected call context; LI.FI
-  is keyless. A locked standalone build of `apps/hoodit` outside the workspace
-  passed.
-- Contract validator: 69 schemas and 84 synthetic assertions passed across
-  seven tools.
-- Frontend relay: seven tests passed with the bundled Node runtime. The system
-  Node 22 build lacks TypeScript stripping and is not a valid test runtime.
-- ESLint and the optimized Next.js build passed.
-- Rust adversarial input, generated-manifest schema, and deterministic
-  seven-tool emitted-output tests passed. These enforce closed inputs,
-  omission-equivalent explicit nulls for optional arguments, cursor pagination,
-  valuation opt-in, holding fraction bounds/defaults, and output-envelope
-  compatibility. Every generated tool property also has a non-empty
-  model-facing description.
+- Rust: 27 unit tests and three contract tests passed; the live-provider test
+  remains explicitly ignored during ordinary test runs. Formatting and clippy
+  with warnings denied passed.
+- SDK: the live staging manager requires `aomi-sdk` 5.1.0; `Cargo.toml` is
+  exactly pinned to 5.1.0 and `Cargo.lock` matches.
+- Build: the optimized dynamic library compiled, and its generated manifest
+  reports Hoodit 1.2.0, exactly nine skill-owned tools, two skills, and no
+  user-declared secret slots.
+- Canonical contract validator: 83 schemas and 95 synthetic fixture assertions
+  passed across all nine tools.
+- Rust-emitted fixtures: 33 input/output assertions passed across all nine
+  tools. These use deterministic local provider responses and make no live
+  network calls.
+- Strict input coverage includes closed top-level and nested objects, bounded
+  pages and result counts, exact addresses, opaque pool identifiers, signed
+  price-change ranges, non-negative market ranges, query-bound cursors, and
+  omission-equivalent optional nulls. The trade-side default is explicitly
+  `both`, matching runtime behavior.
 
-The independent validator's `--implementation-fixtures DIR` mode validated 29
-Rust-emitted input/output assertions covering all seven tools. Coverage includes
-a successful echoed LI.FI quote, cursor continuation with page scope, native
-holding, unknown-decimals partial output, typed missing-provider and invalid
-argument errors, normalization of harmless first-page cursor sentinels, and
-rejection of a real cursor bound to a different wallet. The deterministic
-transport used local synthetic upstream responses and included high-precision
-numeric candle lexemes; it made no live provider calls.
+The managed Aomi workspace runner expects a product-mono-style `aomi/`
+directory and cannot orchestrate this standalone community repository. The
+documented raw Cargo commands above are the repository-appropriate fallback;
+the SDK, optimized plugin, generated manifest, and emitted contract fixtures
+are still checked independently.
 
-A separate read-only live Rust run exercised all seven tools and every emitted
-envelope passed the canonical v1.1.0 schemas. A deliberate burst reached
-GeckoTerminal's rate limit and returned the typed retryable `RATE_LIMITED`
-error; the affected reads succeeded after the provider window recovered. Two
-live 50-row Blockscout pages proved valid continuation replay, page scope, and
-native-balance exclusion after page one. An additional exact holding read for
-a nonzero WETH balance returned a `quoted` keyless LI.FI valuation. These
-checks requested data and quotes only; they did not prepare, authorize, sign,
-or broadcast a transaction.
+## Sanitized live provider checks
 
-## Sanitized live provider proof
+The ignored Rust smoke was run directly against the public providers. Outputs
+were written to temporary local files and summarized without credentials or raw
+wallet data.
 
-Read-only probes confirmed:
+- `hoodit_get_token` returned `status=ok`, schema `1.2.0`, an exact selected
+  pool, eight alternate pools, full security coverage, and holder evidence.
+  Its observed sources were GeckoTerminal and GoPlus.
+- `hoodit_get_market_options` returned 42 current DEX choices.
+- `hoodit_get_token_pools` returned 20 pools with provider-page coverage and
+  explicit `executable_route=false`.
+- A strict `screened` discovery read scanned one 20-row page, enriched the
+  disclosed maximum of four candidates, returned one result, did not relax any
+  filter, and stopped at the scan bound. The partial status and bound warnings
+  are expected completeness signals, not a silent filter relaxation.
 
-- Blockscout authenticated inventory returned two consecutive 50-row pages;
-  a separate EOA returned an 11-row terminal page. Continuations contained
-  `id`, `value`, `items_count`, and nullable `fiat_value`.
-- Blockscout exact ERC-20 and native balance endpoints succeeded under the
-  chain-prefixed `/4663/api` path. Inventory balances and token decimals arrive
-  as decimal strings. USDG decimals were reported as 6.
-- GeckoTerminal token, v4 pool, candles, and trades reads succeeded. The v4
-  pool identifier is a 32-byte opaque hex identifier rather than an address.
-- A keyless same-chain LI.FI PONS-to-USDG read-only quote succeeded. Sanitized
-  evidence retained token metadata and integer amount strings, with transaction
-  request fields excluded.
+The local shell did not contain `HOODIT_BLOCKSCOUT_API_KEY`, so no local live
+portfolio probe was claimed in this validation pass. Wallet coverage must be
+proved after deployment using the host-managed secret slot; secret presence is
+checked without reading or printing its value.
 
-These reads establish provider shape and availability at one point in time.
-They do not establish future uptime, complete wallet snapshots across pages,
-execution-route reliability, wallet authorization, or successful broadcasts.
+Provider reads prove shape and availability only at the recorded time. They do
+not prove future uptime, market-wide ranking, complete wallet history,
+execution-route quality, or successful transaction broadcast.
 
-## Staging chat and cursor remediation
+## Deployment acceptance
 
-Application `2937810` was first observed on deployed Hoodit v1.1.1. Both an
-authenticated locked-chat run and a fresh guest-chat run activated
-`hoodit/portfolio`, then invoked `hoodit_get_portfolio` with the sanitized
-arguments `{"cursor":"null","refresh":false,"include_quotes":false,...}`.
-The tool correctly rejected that fabricated continuation with
-`INVALID_ARGUMENT`; provider credential resolution had already succeeded.
+Local source success is not deployment success. Release acceptance requires an
+immutable pushed source commit, successful Project preflight and candidate CI,
+the expected release asset and digest, host-managed Blockscout secret presence,
+promotion of the exact release, artifact-ready/runtime-loaded state, a settled
+no-tool chat, and a read-only Hoodit tool turn on the deployed application.
 
-The first remediation removed the generated `default: null` and added
-first-page guidance in Hoodit v1.1.2. A later locked-chat run showed that this
-was not deterministic: the model could still emit the literal string `"null"`
-and the strict runtime would reject it.
-
-Hoodit v1.1.3 treats JSON null, empty strings, and case-insensitive `"null"` as
-first-page omission sentinels while continuing to reject every other malformed,
-oversized, or wrong-wallet cursor. All other optional arguments accept JSON
-null as omission while their provider-facing schemas remain non-null and tell
-the model to omit defaults. The audit adds descriptions for all seven tools and
-every input property, including exact-address requirements, opaque pool IDs,
-decimal-string USD filters, Unix-second candle cutoffs, the `native` token
-sentinel, and basis-point examples. Exact-holding LI.FI quotes are now opt-in in
-both schema and runtime.
-
-The staging smoke adapter retains sanitized legacy `tool_arguments`, emits the
-transcript before failing an assertion, and binds guest tokens to the Chat
-staging origin rather than the Build origin.
-
-On 2026-09-18, a fresh staging turn reproduced a different first-page failure:
-the provider-facing strict tool schema required every declared property, so the
-model supplied `"placeholder"` and then `"x"` for the non-null string cursor.
-Both values were correctly rejected as `INVALID_ARGUMENT`. The application
-contract now exposes only this stateful field as `string | null`: JSON null is
-the first-page value, while non-null strings remain restricted to exact Hoodit
-continuations. Ordinary optional fields with real defaults remain non-null and
-defaulted. This preserves pagination without accepting fabricated cursors.
-
-## Staging deployment and post-activation status
-
-Source commit `bdc383a6fb5e020afa8dbe2773805f9e8e7235bd` was deployed only to
-staging as deployment `dep_162207273_rff4cf0103f_bdc383a6fb5e`. Platform CI
-run `35203743039` passed validation, the locked Linux build, and immutable
-release publication. The resulting release tag is
-`apps-162207273-rff4cf0103f-hoodit-bdc383a6fb5e`; its candidate commit is
-`70e19346c160d4a3ac159b57062ad22ee6ad18cc`. The published plugin digest is
-`sha256:31831334a17325ab48767d9746ce867081487be53534c246bda311e7d71ee5b4`.
-
-The Build control plane reports application `2937810` active on that exact
-release. Its deployment timeline labels the source commit current, and live
-observability labels the release healthy on SDK 5.1.0. The published deployment
-record retains `is_public: true`; the Environment view contains the builder-set
-runtime `BLOCKSCOUT_API_KEY`, with its value hidden, and the locked Chat surface
-does not ask an end user for a provider key. No transaction or signing activity
-was recorded.
-
-The initial post-activation app-bound checks were rejected before model or tool
-execution while neither staging replica held the hosted artifact. After the
-staging backend reconciliation rollout, both direct replica availability probes
-returned ready, the application catalog reported `artifact_ready=true`, and a
-fresh locked Hoodit browser turn completed with a non-empty assistant response.
-An Auto-mode control also completed. That recovered the separate hosted-app
-admission failure; it did not fix the later model-emitted `"null"` cursor, which
-is addressed in v1.1.3 above.
-
-Run the reusable smoke after application `2937810` is active on v1.1.4:
-
-```bash
-python3 scripts/hoodit-staging-smoke.py \
-  --secret-file /path/to/optional-local-secrets.env
-```
-
-The script targets `https://chat-staging.aomi.dev`, obtains a fresh
-origin-bound guest token, and keeps it in memory. Its default turns cover a
-greeting, `hoodit_discover_pools`, and a balances-only
-`hoodit_get_portfolio` read for the public fixture address. Each read must
-produce the expected tool name and a non-error, non-null Hoodit envelope;
-unrelated skill-activation events do not satisfy the check. It long-polls each
-turn to completion and aborts if any signing action appears. Values loaded from
-an existing `--secret-file` are removed from recorded output, and raw HTTP
-error bodies and action payloads are never printed. Earlier rejected turns are
-retained as failure evidence rather than counted as passes.
+Record the deployment id, release tag, active application id, artifact digest,
+and smoke evidence here only after those checks complete. A candidate pull
+request or initial HTTP 200 is insufficient by itself.

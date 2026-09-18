@@ -5,7 +5,7 @@ Hoodit is a Robinhood Chain trading assistant for token discovery, market resear
 ## Repository layout
 
 - `app/` and `public/` — Next.js landing page and product UI
-- `apps/hoodit/` — Rust v1.1 dynamic application loaded by Aomi; `src/tools.rs`
+- `apps/hoodit/` — Rust v1.2 dynamic application loaded by Aomi; `src/tools.rs`
   is the public facade, while `src/tools/markets/` and `src/tools/portfolio/`
   own the market and wallet reads respectively
 - `contracts/hoodit-v1/` — canonical JSON Schemas, examples, and independent validator
@@ -47,7 +47,7 @@ origin, credential and error boundaries. Wallet signing requires separate tests.
 
 ## Aomi application
 
-The workspace pins `aomi-sdk = "=5.1.0"`, matching the Aomi backend runtime. GeckoTerminal market data and LI.FI read-only valuation use their public keyless APIs. Wallet reads use a free Blockscout key configured only in Hoodit's Builder Environment. Provider credentials are delivered by the host and never exposed as tool arguments, requested from end users, or handled by the frontend relay.
+The workspace pins `aomi-sdk = "=5.1.0"`, matching the Aomi backend runtime. GeckoTerminal market data, GoPlus security evidence, CoinGecko native-asset pricing, and LI.FI read-only sample quotes use public keyless APIs. Wallet reads use a free Blockscout key configured only in Hoodit's Builder Environment. Provider credentials are delivered by the host and never exposed as tool arguments, requested from end users, or handled by the frontend relay.
 
 ```bash
 cargo test --workspace
@@ -56,14 +56,14 @@ aomi-build sdk check --path . --required-version 5.1.0
 ```
 
 The deterministic application scenario lives at `apps/hoodit/test.json`.
-The app owns two skills: `hoodit/markets` with five read tools and
-`hoodit/portfolio` with two read tools. All seven are hidden until their owning
+The app owns two skills: `hoodit/markets` with seven read tools and
+`hoodit/portfolio` with two read tools. All nine are hidden until their owning
 skill is activated. Actual swaps use the inherited host execution lifecycle.
 
 The amended public schemas and synthetic fixtures live in
 `contracts/hoodit-v1/`. Validate them with
 `python3 contracts/hoodit-v1/validate_contracts.py`.
-CI also runs all seven tools against a deterministic local provider transport,
+CI also runs all nine tools against a deterministic local provider transport,
 emits their actual Rust JSON, and validates those envelopes with
 `--implementation-fixtures`. These are source-level read tests; they do not
 claim a deployment or a completed wallet transaction.

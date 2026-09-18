@@ -16,8 +16,7 @@ fn ctx(name: &str, key: &str) -> DynToolCallCtx {
 #[test]
 #[ignore = "read-only live provider smoke; set HOODIT_BLOCKSCOUT_API_KEY"]
 fn live_read_tools_emit_envelopes() {
-    let key =
-        std::env::var("HOODIT_BLOCKSCOUT_API_KEY").expect("HOODIT_BLOCKSCOUT_API_KEY is required");
+    let key = std::env::var("HOODIT_BLOCKSCOUT_API_KEY").unwrap_or_default();
     let app = HooditApp::default();
     let token = std::env::var("HOODIT_LIVE_TOKEN")
         .unwrap_or_else(|_| "0x39dbed3a2bd333467115de45665cc57f813c4571".into());
@@ -52,8 +51,47 @@ fn live_read_tools_emit_envelopes() {
                 .unwrap(),
             )
         }
+        "screened" => {
+            let input = json!({"feed":"screened","duration":"24h","filters":{"liquidity_usd":{"min":"1000"},"min_gt_score":"1","honeypot":"exclude_flagged"},"limit":2,"max_pages":1,"deduplicate_tokens":true});
+            (
+                "hoodit_discover_pools",
+                input.clone(),
+                DiscoverPools::run(
+                    &app,
+                    serde_json::from_value(input).unwrap(),
+                    ctx("hoodit_discover_pools", &key),
+                )
+                .unwrap(),
+            )
+        }
+        "options" => {
+            let input = json!({});
+            (
+                "hoodit_get_market_options",
+                input.clone(),
+                GetMarketOptions::run(
+                    &app,
+                    serde_json::from_value(input).unwrap(),
+                    ctx("hoodit_get_market_options", &key),
+                )
+                .unwrap(),
+            )
+        }
+        "pools" => {
+            let input = json!({"token":token,"sort":"liquidity","direction":"desc","page":1});
+            (
+                "hoodit_get_token_pools",
+                input.clone(),
+                GetTokenPools::run(
+                    &app,
+                    serde_json::from_value(input).unwrap(),
+                    ctx("hoodit_get_token_pools", &key),
+                )
+                .unwrap(),
+            )
+        }
         "token" => {
-            let input = json!({"token":token,"pool_id":pool});
+            let input = json!({"token":token,"pool_id":pool,"security":"full","include_holders":true,"include_metadata":true});
             (
                 "hoodit_get_token",
                 input.clone(),
@@ -119,6 +157,10 @@ fn live_read_tools_emit_envelopes() {
             )
         }
         _ => {
+            assert!(
+                !key.is_empty(),
+                "HOODIT_BLOCKSCOUT_API_KEY is required for wallet reads"
+            );
             let mut input = json!({"wallet_address":wallet,"include_quotes":false,"refresh":true});
             if let Ok(cursor) = std::env::var("HOODIT_LIVE_CURSOR") {
                 input["cursor"] = json!(cursor);

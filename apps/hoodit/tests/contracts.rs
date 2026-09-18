@@ -3,8 +3,9 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use hoodit::app::{HooditApp, ProviderOrigins, Runtime};
 use hoodit::tools::{
-    CandlesArgs, DiscoverArgs, DiscoverPools, GetCandles, GetHolding, GetPortfolio, GetToken,
-    GetTrades, HoldingArgs, PortfolioArgs, SearchArgs, SearchTokens, TokenArgs, TradesArgs,
+    CandlesArgs, DiscoverArgs, DiscoverPools, GetCandles, GetHolding, GetMarketOptions,
+    GetPortfolio, GetToken, GetTokenPools, GetTrades, HoldingArgs, MarketOptionsArgs,
+    PortfolioArgs, SearchArgs, SearchTokens, TokenArgs, TokenPoolsArgs, TradesArgs,
 };
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
@@ -35,6 +36,28 @@ fn allows_null(schema: &Value) -> bool {
             .any(allows_null)
 }
 
+fn assert_object_schemas_have_properties(path: &str, schema: &Value) {
+    if schema.get("type") == Some(&Value::String("object".into())) {
+        assert!(
+            schema.get("properties").is_some_and(Value::is_object),
+            "{path} has type=object without object-valued properties: {schema:#}"
+        );
+    }
+    match schema {
+        Value::Object(fields) => {
+            for (name, child) in fields {
+                assert_object_schemas_have_properties(&format!("{path}.{name}"), child);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                assert_object_schemas_have_properties(&format!("{path}[{index}]"), child);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[test]
 fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
     let token = "0x1111111111111111111111111111111111111111";
@@ -45,7 +68,7 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
             .page
             .is_none()
     );
-    let discover: DiscoverArgs = serde_json::from_value(json!({"feed":null,"duration":null,"page":null,"min_liquidity_usd":null,"min_volume_24h_usd":null})).unwrap();
+    let discover: DiscoverArgs = serde_json::from_value(json!({"feed":null,"duration":null,"page":null,"min_liquidity_usd":null,"min_volume_24h_usd":null,"filters":null,"sort":null,"direction":null,"limit":null,"max_pages":null,"deduplicate_tokens":null,"cursor":null,"refresh":null})).unwrap();
     assert!(
         discover.feed.is_none()
             && discover.duration.is_none()
@@ -53,9 +76,7 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
             && discover.min_liquidity_usd.is_none()
             && discover.min_volume_24h_usd.is_none()
     );
-    let token_args: TokenArgs =
-        serde_json::from_value(json!({"token":token,"pool_id":null,"include_metadata":null}))
-            .unwrap();
+    let token_args: TokenArgs = serde_json::from_value(json!({"token":token,"pool_id":null,"include_metadata":null,"security":null,"include_holders":null,"refresh":null})).unwrap();
     assert!(token_args.pool_id.is_none() && token_args.include_metadata.is_none());
     let candles: CandlesArgs = serde_json::from_value(json!({"token":token,"pool_id":null,"interval":null,"before":null,"limit":null,"include_open":null})).unwrap();
     assert!(
@@ -66,12 +87,12 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
             && candles.include_open.is_none()
     );
     let trades: TradesArgs = serde_json::from_value(
-        json!({"token":token,"pool_id":null,"limit":null,"min_volume_usd":null}),
+        json!({"token":token,"pool_id":null,"limit":null,"min_volume_usd":null,"side":null}),
     )
     .unwrap();
     assert!(trades.pool_id.is_none() && trades.limit.is_none() && trades.min_volume_usd.is_none());
     let portfolio: PortfolioArgs = serde_json::from_value(
-        json!({"wallet_address":wallet,"cursor":null,"include_quotes":null,"refresh":null}),
+        json!({"wallet_address":wallet,"cursor":null,"include_quotes":null,"valuation":null,"security":null,"sort":null,"min_value_usd":null,"include_unpriced":null,"refresh":null}),
     )
     .unwrap();
     assert!(
@@ -79,7 +100,7 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
             && portfolio.include_quotes.is_none()
             && portfolio.refresh.is_none()
     );
-    let holding: HoldingArgs = serde_json::from_value(json!({"wallet_address":wallet,"token":"native","quote_balance_bps":null,"include_quote":null,"refresh":null})).unwrap();
+    let holding: HoldingArgs = serde_json::from_value(json!({"wallet_address":wallet,"token":"native","quote_balance_bps":null,"include_quote":null,"security":null,"refresh":null})).unwrap();
     assert!(
         holding.quote_balance_bps.is_none()
             && holding.include_quote.is_none()
@@ -103,7 +124,7 @@ fn generated_manifest_exposes_strict_compatible_skill_inputs() {
         .iter()
         .map(|tool| (tool.name.as_str(), tool))
         .collect();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 9);
     for (name, tool) in &tools {
         assert!(
             tool.description.len() >= 80,
@@ -113,6 +134,7 @@ fn generated_manifest_exposes_strict_compatible_skill_inputs() {
             tool.parameters_schema["additionalProperties"], false,
             "{name}"
         );
+        assert_object_schemas_have_properties(name, &tool.parameters_schema);
         for (property, schema) in tool.parameters_schema["properties"].as_object().unwrap() {
             assert!(
                 (*name == "hoodit_get_portfolio" && property == "cursor") || !allows_null(schema),
@@ -159,6 +181,8 @@ fn generated_manifest_exposes_strict_compatible_skill_inputs() {
     );
     assert_eq!(holding["properties"]["quote_balance_bps"]["default"], 100);
     assert_eq!(holding["properties"]["include_quote"]["default"], false);
+    let trades = &tools["hoodit_get_trades"].parameters_schema;
+    assert_eq!(trades["properties"]["side"]["default"], "both");
 }
 
 fn mock_body(path: &str) -> Value {
@@ -197,6 +221,9 @@ fn mock_body(path: &str) -> Value {
     }
     if path.contains("/ohlcv/") {
         return serde_json::from_str(r#"{"data":{"attributes":{"ohlcv_list":[[1700000000,0.123456789012345678901234567890123456,0.2,0.1,0.15,123.456789012345678901234567890123456]]}}}"#).unwrap();
+    }
+    if path.contains("/networks/robinhood/dexes") {
+        return json!({"data":[{"type":"dex","id":"example-dex","attributes":{"name":"Example DEX"}}]});
     }
     if path.contains("/trades") {
         return json!({"data":[{"type":"trade","id":"trade-1","attributes":{"tx_hash":format!("0x{}", "a".repeat(64)),"block_timestamp":Utc::now().to_rfc3339(),"kind":"buy","from_token_address":other,"to_token_address":token,"from_token_amount":"1","to_token_amount":"2","price_to_in_usd":"0.5","volume_in_usd":"1"}}]});
@@ -257,6 +284,8 @@ fn mock_app() -> HooditApp {
         Client::new(),
         ProviderOrigins {
             gecko: base.clone(),
+            goplus: base.clone(),
+            coingecko: base.clone(),
             blockscout: base.clone(),
             lifi: base,
         },
@@ -296,6 +325,8 @@ fn emits_one_success_envelope_for_every_tool() {
         json!({"tool":"hoodit_search_tokens","input":{"query":"EX"},"output":SearchTokens::run(&app, serde_json::from_value(json!({"query":"EX"})).unwrap(), ctx("hoodit_search_tokens")).unwrap()}),
         json!({"tool":"hoodit_discover_pools","input":{},"output":DiscoverPools::run(&app, serde_json::from_value(json!({})).unwrap(), ctx("hoodit_discover_pools")).unwrap()}),
         json!({"tool":"hoodit_get_token","input":{"token":token,"include_metadata":true},"output":GetToken::run(&app, serde_json::from_value(json!({"token":token,"include_metadata":true})).unwrap(), ctx("hoodit_get_token")).unwrap()}),
+        json!({"tool":"hoodit_get_token_pools","input":{"token":token},"output":GetTokenPools::run(&app, serde_json::from_value::<TokenPoolsArgs>(json!({"token":token})).unwrap(), ctx("hoodit_get_token_pools")).unwrap()}),
+        json!({"tool":"hoodit_get_market_options","input":{},"output":GetMarketOptions::run(&app, serde_json::from_value::<MarketOptionsArgs>(json!({})).unwrap(), ctx("hoodit_get_market_options")).unwrap()}),
         json!({"tool":"hoodit_get_candles","input":{"token":token,"before":1700000100},"output":GetCandles::run(&app, serde_json::from_value(json!({"token":token,"before":1700000100})).unwrap(), ctx("hoodit_get_candles")).unwrap()}),
         json!({"tool":"hoodit_get_trades","input":{"token":token},"output":GetTrades::run(&app, serde_json::from_value(json!({"token":token})).unwrap(), ctx("hoodit_get_trades")).unwrap()}),
         json!({"tool":"hoodit_get_portfolio","input":{"wallet_address":wallet},"output":GetPortfolio::run(&app, serde_json::from_value(json!({"wallet_address":wallet})).unwrap(), ctx("hoodit_get_portfolio")).unwrap()}),
@@ -313,18 +344,18 @@ fn emits_one_success_envelope_for_every_tool() {
         "Synthetic"
     );
     assert_eq!(
-        cases[3]["output"]["data"]["candles"][0]["open"],
+        cases[5]["output"]["data"]["candles"][0]["open"],
         "0.123456789012345678901234567890123456"
     );
-    assert_eq!(cases[3]["output"]["data"]["coverage"]["returned"], 1);
-    assert_eq!(cases[4]["output"]["data"]["coverage"]["returned"], 1);
+    assert_eq!(cases[5]["output"]["data"]["coverage"]["returned"], 1);
+    assert_eq!(cases[6]["output"]["data"]["coverage"]["returned"], 1);
     assert_eq!(
-        cases[5]["output"]["data"]["pagination"],
-        json!({"returned":1,"next_cursor":null})
+        cases[7]["output"]["data"]["pagination"],
+        json!({"provider_rows_returned":1,"displayed":2,"next_cursor":null})
     );
-    assert_eq!(cases[6]["output"]["data"]["requested_balance_bps"], 100);
+    assert_eq!(cases[8]["output"]["data"]["requested_balance_bps"], 100);
     assert_eq!(
-        cases[6]["output"]["data"]["sell_amount"]["atomic"],
+        cases[8]["output"]["data"]["sell_amount"]["atomic"],
         "10000000000000000"
     );
     let missing_provider = json!({

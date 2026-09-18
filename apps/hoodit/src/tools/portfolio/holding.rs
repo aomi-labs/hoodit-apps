@@ -3,7 +3,8 @@ use crate::{
     amount,
     app::{HooditApp, ReadContext},
     model,
-    providers::{Blockscout, Lifi, ProviderError},
+    providers::{Blockscout, Gecko, GoPlus, Lifi, ProviderError, included_map, pool},
+    tools::markets::security::normalize_security,
     tools::provider_error,
 };
 use aomi_sdk::schemars::JsonSchema;
@@ -30,6 +31,11 @@ pub struct HoldingArgs {
     #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub include_quote: Option<bool>,
+    /// Attach compact source-labelled security and selected-pool liquidity
+    /// context for an ERC-20. Omit for none.
+    #[serde(default)]
+    #[schemars(with = "String", extend("enum" = ["none", "summary"], "default" = "none"))]
+    pub security: Option<String>,
     /// Bypass Hoodit's short-lived read cache. Omit to use the default true for
     /// this exact holding read; pass false only when cached data is acceptable.
     #[serde(default)]
@@ -60,6 +66,14 @@ impl DynAomiTool for GetHolding {
             return Ok(model::error(
                 "INVALID_ARGUMENT",
                 "quote_balance_bps must be 1 to 10000",
+                false,
+            ));
+        }
+        let security_level = args.security.as_deref().unwrap_or("none");
+        if !["none", "summary"].contains(&security_level) {
+            return Ok(model::error(
+                "INVALID_ARGUMENT",
+                "security must be none or summary",
                 false,
             ));
         }
@@ -146,8 +160,43 @@ impl DynAomiTool for GetHolding {
             Err(error) => return Ok(provider_error(error)),
         };
         let sell_amount_formatted = decimals.map(|decimals| amount::format(&sell_amount, decimals));
+        let (security, ownership, liquidity_context) = if security_level == "summary"
+            && token != "native"
+        {
+            let gecko = Gecko::new(&runtime);
+            let gecko_info = gecko.metadata(&token, &mut read).ok();
+            let goplus_info = GoPlus::new(&runtime).token_security(&token, &mut read).ok();
+            let (security, ownership, coverage) = normalize_security(
+                &token,
+                gecko_info.as_ref(),
+                goplus_info.as_ref(),
+                "summary",
+                false,
+            );
+            let liquidity = gecko.token_pools(&token, &mut read).ok().and_then(|response| {
+                let included = included_map(&response);
+                response.get("data").and_then(Value::as_array).and_then(|rows| rows.first()).map(|row|pool(row,&included))
+            }).map(|selected|json!({"selected_pool":{"pool_id":selected["pool_id"],"dex_id":selected["dex_id"],"liquidity_usd":selected["liquidity_usd"]},"interpretation":"size_context_only_not_a_slippage_estimate_or_executable_route"}));
+            (
+                json!({"facts":security,"coverage":coverage}),
+                ownership,
+                liquidity,
+            )
+        } else if token == "native" && security_level == "summary" {
+            (
+                json!({"status":"unsupported_for_native"}),
+                json!({"status":"unsupported_for_native"}),
+                None,
+            )
+        } else {
+            (
+                json!({"status":"not_requested"}),
+                json!({"status":"not_requested"}),
+                None,
+            )
+        };
         Ok(model::ok(
-            json!({"wallet_address":wallet,"quote_token":quote_token(include_quote),"holding":holding,"requested_balance_bps":quote_balance_bps,"sell_amount":{"atomic":sell_amount.to_string(),"formatted":sell_amount_formatted}}),
+            json!({"wallet_address":wallet,"quote_token":quote_token(include_quote),"holding":holding,"requested_balance_bps":quote_balance_bps,"sell_amount":{"atomic":sell_amount.to_string(),"formatted":sell_amount_formatted},"security":security,"ownership":ownership,"liquidity_context":liquidity_context}),
             read.sources,
             {
                 warnings.extend(read.warnings);

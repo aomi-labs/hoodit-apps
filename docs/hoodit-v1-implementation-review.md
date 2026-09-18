@@ -2,7 +2,7 @@
 
 Reviewed 2026-09-17 against Hoodit commit `30f8347b2e1d08732528eb417d49b3e918b8575f` and the supplied `hoodit-v1-plan.zip`.
 
-This document began as a design review of the pre-v1 repository. Hoodit v1.1.0
+This document began as a design review of the pre-v1 repository. Hoodit v1.2.0
 has since been implemented in this checkout, but it has not been deployed or
 trade-certified by this document. Sections using “proposed,” “recommendation,”
 or design-sketch signatures preserve the reasoning that led to the final code;
@@ -10,7 +10,7 @@ they are not descriptions of the current file layout. The canonical wire
 contract is now `contracts/hoodit-v1/tool-contracts.json`, and current validation
 evidence is recorded in `docs/hoodit-v1-validation.md`.
 
-**Implemented source scope:** seven read tools, two skills, one Rust crate, and
+**Implemented source scope:** nine read tools, two skills, one Rust crate, and
 the inherited host execution workflow. Wallet reads use Blockscout's free
 authenticated API rather than Etherscan. No backend crate, indexer, database,
 or frontend rewrite was added. Actual trade execution and deployment acceptance

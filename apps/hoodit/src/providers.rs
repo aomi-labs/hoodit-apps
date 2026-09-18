@@ -308,6 +308,14 @@ impl<'a> Gecko<'a> {
         )
     }
     pub fn token_pools(&self, token: &str, read: &mut ReadContext) -> Result<Value, ProviderError> {
+        self.token_pools_page(token, 1, read)
+    }
+    pub fn token_pools_page(
+        &self,
+        token: &str,
+        page: u8,
+        read: &mut ReadContext,
+    ) -> Result<Value, ProviderError> {
         let token = address_segment(token)?;
         not_found(
             get(
@@ -315,7 +323,10 @@ impl<'a> Gecko<'a> {
                 "geckoterminal",
                 &self.runtime.origins.gecko,
                 &format!("/networks/{NETWORK}/tokens/{token}/pools"),
-                &[("include".into(), "base_token,quote_token,dex".into())],
+                &[
+                    ("include".into(), "base_token,quote_token,dex".into()),
+                    ("page".into(), page.to_string()),
+                ],
                 &[],
                 Duration::from_secs(20),
                 None,
@@ -353,6 +364,60 @@ impl<'a> Gecko<'a> {
             &[],
             &[],
             Duration::from_secs(60),
+            None,
+            read,
+        )
+    }
+    pub fn pool_info(&self, pool: &str, read: &mut ReadContext) -> Result<Value, ProviderError> {
+        let pool = pool_segment(pool)?;
+        get(
+            self.runtime,
+            "geckoterminal",
+            &self.runtime.origins.gecko,
+            &format!("/networks/{NETWORK}/pools/{pool}/info"),
+            &[("include".into(), "pool".into())],
+            &[],
+            Duration::from_secs(60),
+            None,
+            read,
+        )
+    }
+    pub fn dexes(&self, read: &mut ReadContext) -> Result<Value, ProviderError> {
+        get(
+            self.runtime,
+            "geckoterminal",
+            &self.runtime.origins.gecko,
+            &format!("/networks/{NETWORK}/dexes"),
+            &[],
+            &[],
+            Duration::from_secs(300),
+            None,
+            read,
+        )
+    }
+    pub fn token_prices(
+        &self,
+        tokens: &[String],
+        read: &mut ReadContext,
+    ) -> Result<Value, ProviderError> {
+        if tokens.is_empty() || tokens.len() > 30 {
+            return Err(ProviderError::schema(
+                "token price batch must contain 1 to 30 addresses",
+            ));
+        }
+        let addresses = tokens
+            .iter()
+            .map(|token| address_segment(token))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(",");
+        get(
+            self.runtime,
+            "geckoterminal",
+            &self.runtime.origins.gecko,
+            &format!("/simple/networks/{NETWORK}/token_price/{addresses}"),
+            &[],
+            &[],
+            Duration::from_secs(20),
             None,
             read,
         )
@@ -407,6 +472,60 @@ impl<'a> Gecko<'a> {
             ],
             &[],
             Duration::from_secs(10),
+            None,
+            read,
+        )
+    }
+}
+
+pub struct GoPlus<'a> {
+    runtime: &'a Runtime,
+}
+
+pub struct CoinGecko<'a> {
+    runtime: &'a Runtime,
+}
+impl<'a> CoinGecko<'a> {
+    pub fn new(runtime: &'a Runtime) -> Self {
+        Self { runtime }
+    }
+
+    pub fn eth_price(&self, read: &mut ReadContext) -> Result<Value, ProviderError> {
+        get(
+            self.runtime,
+            "coingecko",
+            &self.runtime.origins.coingecko,
+            "/simple/price",
+            &[
+                ("ids".into(), "ethereum".into()),
+                ("vs_currencies".into(), "usd".into()),
+            ],
+            &[],
+            Duration::from_secs(20),
+            None,
+            read,
+        )
+    }
+}
+impl<'a> GoPlus<'a> {
+    pub fn new(runtime: &'a Runtime) -> Self {
+        Self { runtime }
+    }
+
+    pub fn token_security(
+        &self,
+        token: &str,
+        read: &mut ReadContext,
+    ) -> Result<Value, ProviderError> {
+        let token = address_segment(token)?;
+        get(
+            self.runtime,
+            "goplus",
+            &self.runtime.origins.goplus,
+            &format!("/token_security/{}", model::CHAIN_ID),
+            &[("contract_addresses".into(), token)],
+            &[],
+            Duration::from_secs(60),
             None,
             read,
         )
@@ -934,6 +1053,8 @@ mod tests {
             Client::new(),
             ProviderOrigins {
                 gecko: base.clone(),
+                goplus: base.clone(),
+                coingecko: base.clone(),
                 blockscout: base.clone(),
                 lifi: base,
             },
@@ -963,6 +1084,8 @@ mod tests {
             Client::new(),
             ProviderOrigins {
                 gecko: base.clone(),
+                goplus: base.clone(),
+                coingecko: base.clone(),
                 blockscout: base.clone(),
                 lifi: base.clone(),
             },
@@ -992,6 +1115,8 @@ mod tests {
             Client::new(),
             ProviderOrigins {
                 gecko: base.clone(),
+                goplus: base.clone(),
+                coingecko: base.clone(),
                 blockscout: base.clone(),
                 lifi: base.clone(),
             },

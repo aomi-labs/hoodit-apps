@@ -1,11 +1,13 @@
 use super::valuation::{
-    HoldingInput, make_holding, normalize_inventory_holding, quote_token, sort_holdings,
-    sum_holding_values, verify_usdg_token,
+    HoldingInput, add_allocations, apply_market_valuations, make_holding,
+    normalize_inventory_holding, quote_token, sort_holdings_by, sum_holding_values,
+    sum_market_values, verify_usdg_token,
 };
 use crate::{
     app::{HooditApp, ReadContext},
     model,
-    providers::{Blockscout, Lifi, ProviderError},
+    providers::{Blockscout, CoinGecko, Gecko, GoPlus, Lifi, ProviderError, included_map, pool},
+    tools::markets::security::normalize_security,
     tools::provider_error,
 };
 use aomi_sdk::schemars::JsonSchema;
@@ -13,6 +15,7 @@ use aomi_sdk::{DynAomiTool, DynToolCallCtx};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::str::FromStr;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +45,30 @@ pub struct PortfolioArgs {
     #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub include_quotes: Option<bool>,
+    /// Valuation mode. none is balances only, market uses observed USD marks,
+    /// and quote_sample uses bounded LI.FI samples into USDG. When omitted,
+    /// legacy include_quotes=true selects quote_sample.
+    #[serde(default)]
+    #[schemars(with = "String", extend("enum" = ["none", "market", "quote_sample"], "default" = "none"))]
+    pub valuation: Option<String>,
+    /// Attach compact source-labelled security observations to a bounded set
+    /// of holdings. Omit for none.
+    #[serde(default)]
+    #[schemars(with = "String", extend("enum" = ["none", "summary"], "default" = "none"))]
+    pub security: Option<String>,
+    /// Display ordering. Omit for value descending.
+    #[serde(default)]
+    #[schemars(with = "String", extend("enum" = ["value_desc", "symbol"], "default" = "value_desc"))]
+    pub sort: Option<String>,
+    /// Minimum observed USD value to display. Unpriced holdings remain visible
+    /// unless include_unpriced=false. Omit for no minimum.
+    #[serde(default)]
+    #[schemars(with = "String", pattern(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$"))]
+    pub min_value_usd: Option<String>,
+    /// Keep unpriced holdings visible when a value filter is used. Omit for true.
+    #[serde(default)]
+    #[schemars(with = "bool", extend("default" = true))]
+    pub include_unpriced: Option<bool>,
     /// Bypass Hoodit's short-lived read cache. Omit for false; use true only
     /// when the user explicitly asks for a fresh provider read.
     #[serde(default)]
@@ -55,13 +82,55 @@ impl DynAomiTool for GetPortfolio {
     type App = HooditApp;
     type Args = PortfolioArgs;
     const NAME: &'static str = "hoodit_get_portfolio";
-    const DESCRIPTION: &'static str = "Read one public Robinhood Chain wallet inventory page. Use JSON null for cursor on the first page, then only reuse this tool's exact next_cursor for the same wallet. Never invent a cursor or placeholder. Optional quotes are estimates, and the result contains no cost basis, P&L, or transaction history.";
+    const DESCRIPTION: &'static str = "Read one public Robinhood Chain wallet inventory page with exact balances, optional USD market marks or bounded USDG quote samples, allocation denominators, compact security context, and explicit page-versus-wallet coverage. Use only the exact opaque continuation returned for this wallet; no result contains cost basis, P&L, or transaction history.";
 
     fn run(app: &HooditApp, args: PortfolioArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let mut read = ReadContext::portfolio(args.refresh.unwrap_or(false));
         let wallet = match model::address(&args.wallet_address) {
             Ok(wallet) => wallet,
             Err(message) => return Ok(model::error("INVALID_ARGUMENT", &message, false)),
+        };
+        let valuation = match (args.valuation.as_deref(), args.include_quotes) {
+            (Some(value), Some(legacy)) if (value == "quote_sample") != legacy => {
+                return Ok(model::error(
+                    "INVALID_ARGUMENT",
+                    "valuation conflicts with legacy include_quotes",
+                    false,
+                ));
+            }
+            (Some(value), _) => value,
+            (None, Some(true)) => "quote_sample",
+            _ => "none",
+        };
+        if !["none", "market", "quote_sample"].contains(&valuation) {
+            return Ok(model::error(
+                "INVALID_ARGUMENT",
+                "valuation must be none, market, or quote_sample",
+                false,
+            ));
+        }
+        let security = args.security.as_deref().unwrap_or("none");
+        if !["none", "summary"].contains(&security) {
+            return Ok(model::error(
+                "INVALID_ARGUMENT",
+                "security must be none or summary",
+                false,
+            ));
+        }
+        let sort = args.sort.as_deref().unwrap_or("value_desc");
+        if !["value_desc", "symbol"].contains(&sort) {
+            return Ok(model::error(
+                "INVALID_ARGUMENT",
+                "sort must be value_desc or symbol",
+                false,
+            ));
+        }
+        let min_value_usd = match args.min_value_usd.as_deref() {
+            Some(value) => match model::decimal(value) {
+                Ok(value) => Some(value),
+                Err(message) => return Ok(model::error("INVALID_ARGUMENT", &message, false)),
+            },
+            None => None,
         };
         let runtime = app.runtime()?;
         let blockscout = match Blockscout::from_ctx(&runtime, &ctx) {
@@ -72,7 +141,7 @@ impl DynAomiTool for GetPortfolio {
             Ok(inventory) => inventory,
             Err(error) => return Ok(provider_error(error)),
         };
-        let include_quotes = args.include_quotes.unwrap_or(false);
+        let include_quotes = valuation == "quote_sample";
         if include_quotes && let Err(error) = verify_usdg_token(&blockscout, &mut read) {
             return Ok(provider_error(error));
         }
@@ -146,7 +215,22 @@ impl DynAomiTool for GetPortfolio {
                 Err(error) => return Ok(provider_error(error)),
             }
         }
-        sort_holdings(&mut holdings);
+        let gecko = Gecko::new(&runtime);
+        if valuation == "market" {
+            apply_market_valuations(
+                &mut holdings,
+                &gecko,
+                &CoinGecko::new(&runtime),
+                &mut read,
+                &mut warnings,
+            );
+        }
+        let security_enriched = if security == "summary" {
+            attach_security_context(&mut holdings, &gecko, &GoPlus::new(&runtime), &mut read)
+        } else {
+            0
+        };
+        sort_holdings_by(&mut holdings, sort);
         let scope = if inventory.next_cursor.is_none() && native_included {
             "wallet"
         } else {
@@ -156,19 +240,58 @@ impl DynAomiTool for GetPortfolio {
             ));
             "page"
         };
+        let original_holdings_count = holdings.len();
+        let minimum = min_value_usd
+            .as_deref()
+            .and_then(|value| bigdecimal::BigDecimal::from_str(value).ok());
+        let include_unpriced = args.include_unpriced.unwrap_or(true);
+        holdings.retain(|holding| {
+            let value = model::string(holding, &["valuation", "value_usd"])
+                .and_then(|value| bigdecimal::BigDecimal::from_str(&value).ok());
+            match (value, minimum.as_ref()) {
+                (Some(value), Some(minimum)) => value >= *minimum,
+                (Some(_), None) => true,
+                (None, _) => include_unpriced,
+            }
+        });
+        let filtered_out_count = original_holdings_count - holdings.len();
         let priced_count = holdings
             .iter()
-            .filter(|holding| holding["valuation"]["value_usdg"].is_string())
+            .filter(|holding| {
+                holding["valuation"]["value_usd"].is_string()
+                    || holding["valuation"]["value_usdg"].is_string()
+            })
             .count();
         let unpriced_count = holdings.len() - priced_count;
         let priced_value_usdg = sum_holding_values(&holdings);
+        let priced_value_usd = sum_market_values(&holdings);
+        add_allocations(&mut holdings, priced_value_usd.as_deref());
         let total_value_usdg = if scope == "wallet" && include_quotes && unpriced_count == 0 {
             priced_value_usdg.clone().or_else(|| Some("0".into()))
         } else {
             None
         };
+        let total_value_usd = if scope == "wallet" && valuation == "market" && unpriced_count == 0 {
+            priced_value_usd.clone().or_else(|| Some("0".into()))
+        } else {
+            None
+        };
+        let mut exposure_holdings = holdings.clone();
+        sort_holdings_by(&mut exposure_holdings, "value_desc");
+        let top_exposures = exposure_holdings
+            .iter()
+            .filter(|holding| holding["allocation"]["percentage"].is_string())
+            .take(5)
+            .map(|holding| {
+                json!({
+                    "token":holding["token"],
+                    "value_usd":holding["valuation"]["value_usd"],
+                    "allocation_pct":holding["allocation"]["percentage"]
+                })
+            })
+            .collect::<Vec<_>>();
         Ok(model::ok(
-            json!({"wallet_address":wallet,"quote_token":quote_token(include_quotes),"native_included":native_included,"holdings":holdings,"pagination":{"returned":returned,"next_cursor":inventory.next_cursor},"summary":{"scope":scope,"holdings_count":priced_count+unpriced_count,"priced_count":priced_count,"unpriced_count":unpriced_count,"priced_value_usdg":if include_quotes {priced_value_usdg}else{None},"total_value_usdg":total_value_usdg}}),
+            json!({"wallet_address":wallet,"valuation_mode":valuation,"security_mode":security,"quote_token":quote_token(include_quotes),"native_included":native_included,"holdings":holdings,"pagination":{"provider_rows_returned":returned,"displayed":priced_count+unpriced_count,"next_cursor":inventory.next_cursor},"summary":{"scope":scope,"display_scope":"filtered_page","holdings_count":priced_count+unpriced_count,"priced_count":priced_count,"unpriced_count":unpriced_count,"filtered_out_count":filtered_out_count,"priced_value_usd":if valuation=="market"{priced_value_usd}else{None},"total_value_usd":total_value_usd,"priced_value_usdg":if include_quotes {priced_value_usdg}else{None},"total_value_usdg":total_value_usdg,"allocation_denominator":"displayed_priced_holdings","top_exposures":top_exposures},"coverage":{"security_enriched":security_enriched,"security_enrichment_cap":if security=="summary"{4}else{0},"min_value_usd":min_value_usd,"include_unpriced":include_unpriced,"usd_and_usdg_not_conflated":true}}),
             read.sources,
             {
                 warnings.extend(read.warnings);
@@ -191,4 +314,77 @@ where
             Some(value.to_string())
         }
     }))
+}
+
+fn attach_security_context(
+    holdings: &mut [Value],
+    gecko: &Gecko,
+    goplus: &GoPlus,
+    read: &mut ReadContext,
+) -> usize {
+    let mut enriched = 0usize;
+    let mut liquidity_enriched = 0usize;
+    for holding in holdings {
+        let Some(token) =
+            model::string(holding, &["token", "id"]).filter(|token| token != "native")
+        else {
+            holding["security"] = json!({"status":"unsupported_for_native"});
+            continue;
+        };
+        if enriched >= 4 {
+            holding["security"] = json!({"status":"not_enriched","reason":"response_bound"});
+            continue;
+        }
+        let gecko_info = gecko.metadata(&token, read).ok();
+        let goplus_info = goplus.token_security(&token, read).ok();
+        let (security, ownership, coverage) = normalize_security(
+            &token,
+            gecko_info.as_ref(),
+            goplus_info.as_ref(),
+            "summary",
+            false,
+        );
+        holding["security"] = security;
+        holding["ownership"] = ownership;
+        holding["security_coverage"] = coverage;
+        enriched += 1;
+
+        if liquidity_enriched < 3
+            && let Ok(response) = gecko.token_pools(&token, read)
+        {
+            let included = included_map(&response);
+            if let Some(selected) = response
+                .get("data")
+                .and_then(Value::as_array)
+                .and_then(|rows| rows.first())
+                .map(|row| pool(row, &included))
+            {
+                let liquidity = model::string(&selected, &["liquidity_usd"]);
+                let position = model::string(holding, &["valuation", "value_usd"]);
+                let ratio_pct = position
+                    .as_deref()
+                    .and_then(|value| bigdecimal::BigDecimal::from_str(value).ok())
+                    .zip(
+                        liquidity
+                            .as_deref()
+                            .and_then(|value| bigdecimal::BigDecimal::from_str(value).ok()),
+                    )
+                    .and_then(|(position, liquidity)| {
+                        (!num_traits::Zero::is_zero(&liquidity)).then(|| {
+                            ((position / liquidity) * bigdecimal::BigDecimal::from(100))
+                                .with_scale_round(8, bigdecimal::RoundingMode::HalfEven)
+                                .normalized()
+                                .to_plain_string()
+                        })
+                    });
+                holding["liquidity_context"] = json!({
+                    "selected_pool":{"pool_id":selected["pool_id"],"dex_id":selected["dex_id"],"liquidity_usd":liquidity},
+                    "position_to_pool_liquidity_pct":ratio_pct,
+                    "interpretation":"size_context_only_not_a_slippage_estimate_or_executable_route"
+                });
+                liquidity_enriched += 1;
+            }
+        }
+    }
+    enriched
 }

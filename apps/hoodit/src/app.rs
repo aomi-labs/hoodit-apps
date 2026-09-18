@@ -12,6 +12,8 @@ const CACHE_CAPACITY: usize = 256;
 #[derive(Clone)]
 pub struct ProviderOrigins {
     pub gecko: String,
+    pub goplus: String,
+    pub coingecko: String,
     pub blockscout: String,
     pub lifi: String,
 }
@@ -19,6 +21,8 @@ impl Default for ProviderOrigins {
     fn default() -> Self {
         Self {
             gecko: "https://api.geckoterminal.com/api/v2".into(),
+            goplus: "https://api.gopluslabs.io/api/v1".into(),
+            coingecko: "https://api.coingecko.com/api/v3".into(),
             blockscout: "https://api.blockscout.com/4663".into(),
             lifi: "https://li.quest/v1".into(),
         }
@@ -97,6 +101,8 @@ impl Runtime {
         let (limit, window) = match provider {
             "blockscout" => (5, Duration::from_secs(1)),
             "geckoterminal" => (10, Duration::from_secs(60)),
+            "goplus" => (30, Duration::from_secs(60)),
+            "coingecko" => (10, Duration::from_secs(60)),
             "lifi" if credential.is_some() => (200, Duration::from_secs(7200)),
             "lifi" => (75, Duration::from_secs(7200)),
             _ => return None,
@@ -154,6 +160,8 @@ impl ReadContext {
             warnings: vec![],
             budgets: HashMap::from([
                 ("geckoterminal", 10),
+                ("goplus", 10),
+                ("coingecko", 2),
                 ("blockscout", 25),
                 ("lifi", lifi_budget),
             ]),
@@ -205,7 +213,7 @@ impl HooditApp {
 fn build_runtime() -> Result<Arc<Runtime>, String> {
     let mut headers = HeaderMap::new();
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    headers.insert(USER_AGENT, HeaderValue::from_static("hoodit/1.1"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("hoodit/1.2"));
     Client::builder()
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(10))

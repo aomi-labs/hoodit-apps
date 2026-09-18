@@ -1,5 +1,5 @@
 {
-  "notice": "Synthetic Hoodit v1.1.0 examples covering continuation, a 50-row provider page, quote-budget exhaustion, and cursor binding; not live observations.",
+  "notice": "Synthetic Hoodit v1.2.0 examples covering continuation, a 50-row provider page, quote-budget exhaustion, and cursor binding; not live observations.",
   "cases": [
     {
       "tool": "hoodit_search_tokens",
@@ -7,7 +7,7 @@
         "query": "EXAMPLE"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "query": "EXAMPLE",
@@ -61,7 +61,7 @@
         "query": "EXAMPLE"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -93,7 +93,7 @@
         "duration": "1h"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "feed": "trending",
@@ -209,7 +209,7 @@
         "duration": "1h"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -240,7 +240,7 @@
         "token": "0x1111111111111111111111111111111111111111"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "token": {
@@ -358,7 +358,7 @@
         "token": "0x1111111111111111111111111111111111111111"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -392,7 +392,7 @@
         "before": 1789560000
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "token": "0x1111111111111111111111111111111111111111",
@@ -460,7 +460,7 @@
         "before": 1789560000
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -492,7 +492,7 @@
         "limit": 1
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "token": "0x1111111111111111111111111111111111111111",
@@ -546,7 +546,7 @@
         "limit": 1
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -578,7 +578,7 @@
         "include_quotes": true
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "wallet_address": "0x3333333333333333333333333333333333333333",
@@ -668,7 +668,7 @@
         "wallet_address": "0x3333333333333333333333333333333333333333"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -701,7 +701,7 @@
         "quote_balance_bps": 100
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "wallet_address": "0x3333333333333333333333333333333333333333",
@@ -783,7 +783,7 @@
         "quote_balance_bps": 100
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -816,7 +816,7 @@
         "include_quotes": false
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "ok",
         "data": {
           "wallet_address": "0x3333333333333333333333333333333333333333",
@@ -889,7 +889,7 @@
         "include_quotes": true
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "partial",
         "data": {
           "wallet_address": "0x3333333333333333333333333333333333333333",
@@ -2357,7 +2357,7 @@
         "cursor": "djE6NDY2MzpvdGhlcl93YWxsZXQ"
       },
       "output": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "status": "error",
         "data": null,
         "meta": {
@@ -2380,6 +2380,52 @@
           "retryable": false,
           "retry_after_seconds": null
         }
+      }
+    },
+    {
+      "tool": "hoodit_get_token_pools",
+      "input": {
+        "token": "0x1111111111111111111111111111111111111111"
+      },
+      "output": {
+        "schema_version": "1.2.0",
+        "status": "ok",
+        "data": {
+          "token": "0x1111111111111111111111111111111111111111",
+          "dex_ids": [],
+          "sort": "liquidity",
+          "direction": "desc",
+          "pools": [],
+          "pagination": {"page": 1, "page_size": 20, "returned": 0, "next_page": null},
+          "coverage": {"scope": "provider_page", "ranked_within_scanned_candidates": true, "executable_route": false}
+        },
+        "meta": {
+          "chain_id": 4663,
+          "generated_at": "2026-09-18T12:00:00Z",
+          "sources": [{"provider":"hoodit","resource":"illustrative-fixture-not-live-data","fetched_at":"2026-09-18T12:00:00Z","provider_updated_at":null,"cached":false}],
+          "warnings": []
+        },
+        "error": null
+      }
+    },
+    {
+      "tool": "hoodit_get_market_options",
+      "input": {},
+      "output": {
+        "schema_version": "1.2.0",
+        "status": "ok",
+        "data": {
+          "network": {"id":"robinhood","chain_id":4663},
+          "dexes": [],
+          "discovery": {"mode":"free_bounded_scan","paid_megafilter":{"configured":false,"validated":false}}
+        },
+        "meta": {
+          "chain_id": 4663,
+          "generated_at": "2026-09-18T12:00:00Z",
+          "sources": [{"provider":"hoodit","resource":"illustrative-fixture-not-live-data","fetched_at":"2026-09-18T12:00:00Z","provider_updated_at":null,"cached":false}],
+          "warnings": []
+        },
+        "error": null
       }
     }
   ]

@@ -222,7 +222,7 @@ def main() -> None:
         "implementation_fixture_assertions_passed": implementation_assertions,
     }
     (root / "validation-report.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(f"PASS: {schema_count} schemas checked; {synthetic_assertions} synthetic fixture assertions; 7 tools documented.")
+    print(f"PASS: {schema_count} schemas checked; {synthetic_assertions} synthetic fixture assertions; {len(tools)} tools documented.")
     if not args.implementation_fixtures:
         print("No provider, wallet, compiled implementation, or deployment tests were run.")
     else:
