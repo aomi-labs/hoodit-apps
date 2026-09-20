@@ -213,7 +213,7 @@ impl HooditApp {
 fn build_runtime() -> Result<Arc<Runtime>, String> {
     let mut headers = HeaderMap::new();
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    headers.insert(USER_AGENT, HeaderValue::from_static("hoodit/1.2"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("hoodit/1.3"));
     Client::builder()
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(10))

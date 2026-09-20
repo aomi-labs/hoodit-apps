@@ -5,7 +5,7 @@ Hoodit is a Robinhood Chain trading assistant for token discovery, market resear
 ## Repository layout
 
 - `app/` and `public/` — Next.js landing page and product UI
-- `apps/hoodit/` — Rust v1.2 dynamic application loaded by Aomi; `src/tools.rs`
+- `apps/hoodit/` — Rust v1.3 dynamic application loaded by Aomi; `src/tools.rs`
   is the public facade, while `src/tools/markets/` and `src/tools/portfolio/`
   own the market and wallet reads respectively
 - `contracts/hoodit-v1/` — canonical JSON Schemas, examples, and independent validator
@@ -55,10 +55,27 @@ cargo clippy --workspace --all-targets -- -D warnings
 aomi-build sdk check --path . --required-version 5.1.0
 ```
 
-The deterministic application scenario lives at `apps/hoodit/test.json`.
-The app owns two skills: `hoodit/markets` with seven read tools and
-`hoodit/portfolio` with two read tools. All nine are hidden until their owning
-skill is activated. Actual swaps use the inherited host execution lifecycle.
+The natural-language application compatibility scenario lives at `apps/hoodit/test.json`.
+The app exposes three skills: `hoodit/markets` with seven read tools,
+`hoodit/portfolio` with two read tools, and the instruction-only
+`hoodit/coin-scanner` audit playbook. The scanner activates with the market
+skill and reuses its tools rather than duplicating schemas or dispatch routes.
+All nine tools remain hidden until their owning skill is activated. Actual
+swaps use the inherited host execution lifecycle.
+
+### Research quality evaluations
+
+`tests/research/stories.json` contains casual trader stories, including short
+prompts, follow-ups, identity ambiguity, stale charts, honeypots, dead pools,
+provider outages, and live research. Expected outcomes are kept away from the
+actor. A separate LLM grades the answer against the actual returned evidence,
+including whether the recommendation is justified and whether the voice works
+in chat. A good style score cannot cancel a critical factual or selection error.
+
+See [the research eval guide](docs/hoodit-research-evals.md) for running the
+suite, model selection, controlled versus live evidence, limitations, and
+reproducible reports. These are research component tests; the host compatibility
+scenario remains a separate check. No model weights are trained by this workflow.
 
 The amended public schemas and synthetic fixtures live in
 `contracts/hoodit-v1/`. Validate them with

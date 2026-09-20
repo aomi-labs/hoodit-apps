@@ -1,15 +1,37 @@
 {
-  "user_story": "Screen Robinhood Chain markets, inspect security and pool evidence, and analyze a public wallet with Hoodit's read-only v1.2 tools without preparing a transaction.",
-  "wallet_seed": { "address": "0xb202bb725c85b90bd847d350ebc7f16ff8408ed8", "chain_id": 4663, "is_connected": true },
+  "user_story": "A trader casually explores Robinhood Chain coins, checks a named token, and asks a short follow-up without supplying an internal research checklist.",
   "turns": [
-    { "prompt": "Find PONS token candidates on Robinhood Chain. Show exact contracts and do not choose an ambiguous symbol for me.", "expected_tools": { "must_call": ["activate_skills", "hoodit_search_tokens"] } },
-    { "prompt": "List the current DEX and discovery options Hoodit can use on Robinhood Chain.", "expected_tools": { "must_call": ["hoodit_get_market_options"] } },
-    { "prompt": "Using the exact PONS contract from the first result, compare its indexed pools by liquidity.", "expected_tools": { "must_call": ["hoodit_get_token_pools"] } },
-    { "prompt": "Inspect that exact PONS contract with full security and holder evidence. Preserve unknowns and provider disagreements.", "expected_tools": { "must_call": ["hoodit_get_token"] } },
-    { "prompt": "Strictly screen one bounded page for pools with at least $1,000 liquidity, any explicit GeckoTerminal score, and no honeypot flag. Do not relax filters.", "expected_tools": { "must_call": ["hoodit_discover_pools"] } },
-    { "prompt": "Show the last five completed 15-minute candles for that exact token and selected pool.", "expected_tools": { "must_call": ["hoodit_get_candles"] } },
-    { "prompt": "Read the seeded public wallet with keyless market valuation, allocation percentages, and summary security context. Keep unpriced holdings; do not request swap quotes or prepare a trade.", "expected_tools": { "must_call": ["activate_skills", "hoodit_get_portfolio"] } },
-    { "prompt": "Read that wallet's exact USDG holding and calculate the exact atomic and formatted half-balance size without a quote.", "expected_tools": { "must_call": ["hoodit_get_holding"] } }
+    {
+      "prompt": "what can i ape today?",
+      "expected_tools": {
+        "must_call": [
+          "hoodit_discover_pools"
+        ]
+      }
+    },
+    {
+      "prompt": "PONS looking good?"
+    },
+    {
+      "prompt": "is the chart actually decent or just hype?"
+    },
+    {
+      "prompt": "people actually selling this thing?"
+    },
+    {
+      "prompt": "give me your take in two lines"
+    }
   ],
-  "final_assertion": { "user_state": { "pending_txs": { "max_count": 0 }, "pending_eip712s": { "max_count": 0 } }, "no_errors": true, "max_turns": 14 }
+  "final_assertion": {
+    "user_state": {
+      "pending_txs": {
+        "max_count": 0
+      },
+      "pending_eip712s": {
+        "max_count": 0
+      }
+    },
+    "no_errors": true,
+    "max_turns": 24
+  }
 }

@@ -913,7 +913,7 @@ pub fn pool(value: &Value, included: &Map<String, Value>) -> Value {
         model::string(value, &["id"])
             .map(|id| id.strip_prefix("robinhood_").unwrap_or(&id).to_string())
     });
-    json!({"pool_id":pool_id,"dex_id":dex_id,"dex_name":dex_name,"name":model::string(value,&["attributes","name"]),"base_token":base,"quote_token":quote,"base_price_usd":model::string(&attrs,&["base_token_price_usd"]),"quote_price_usd":model::string(&attrs,&["quote_token_price_usd"]),"liquidity_usd":model::string(&attrs,&["reserve_in_usd"]),"created_at":model::string(&attrs,&["pool_created_at"]),"windows":windows})
+    json!({"pool_id":pool_id,"dex_id":dex_id,"dex_name":dex_name,"name":model::string(value,&["attributes","name"]),"base_token":base,"quote_token":quote,"base_price_usd":model::string(&attrs,&["base_token_price_usd"]),"quote_price_usd":model::string(&attrs,&["quote_token_price_usd"]),"liquidity_usd":model::string(&attrs,&["reserve_in_usd"]),"fdv_usd":model::string(&attrs,&["fdv_usd"]),"market_cap_usd":model::string(&attrs,&["market_cap_usd"]),"created_at":model::string(&attrs,&["pool_created_at"]),"windows":windows})
 }
 
 #[cfg(test)]
@@ -992,7 +992,7 @@ mod tests {
     fn pool_normalization_keeps_v4_id_and_complete_windows() {
         let raw = json!({
             "id":"robinhood_0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a",
-            "attributes":{"name":"PONS / USDG","transactions":{"h24":{"buys":7,"sells":3}},"volume_usd":{"h24":"12.5"}},
+            "attributes":{"name":"PONS / USDG","fdv_usd":"250000","market_cap_usd":"175000","transactions":{"h24":{"buys":7,"sells":3}},"volume_usd":{"h24":"12.5"}},
             "relationships":{
                 "base_token":{"data":{"id":"robinhood_0x39dbed3a2bd333467115de45665cc57f813c4571"}},
                 "quote_token":{"data":{"id":"robinhood_0x5fc5360d0400a0fd4f2af552add042d716f1d168"}},
@@ -1018,6 +1018,14 @@ mod tests {
         assert_eq!(
             model::get(&normalized, &["windows", "h24", "buys"]).and_then(Value::as_u64),
             Some(7)
+        );
+        assert_eq!(
+            model::string(&normalized, &["fdv_usd"]).as_deref(),
+            Some("250000")
+        );
+        assert_eq!(
+            model::string(&normalized, &["market_cap_usd"]).as_deref(),
+            Some("175000")
         );
         assert!(normalized.get("volume_24h_usd").is_none());
     }

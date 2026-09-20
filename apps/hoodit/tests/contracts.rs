@@ -74,13 +74,15 @@ fn optional_nulls_are_omissions_but_unknown_and_required_nulls_are_rejected() {
             .page
             .is_none()
     );
-    let discover: DiscoverArgs = serde_json::from_value(json!({"feed":null,"duration":null,"page":null,"min_liquidity_usd":null,"min_volume_24h_usd":null,"filters":null,"sort":null,"direction":null,"limit":null,"max_pages":null,"deduplicate_tokens":null,"cursor":null,"refresh":null})).unwrap();
+    let discover: DiscoverArgs = serde_json::from_value(json!({"feed":null,"source_feed":null,"duration":null,"page":null,"min_liquidity_usd":null,"min_volume_24h_usd":null,"filters":null,"sort":null,"direction":null,"limit":null,"max_pages":null,"enrichment_limit":null,"deduplicate_tokens":null,"cursor":null,"refresh":null})).unwrap();
     assert!(
         discover.feed.is_none()
             && discover.duration.is_none()
+            && discover.source_feed.is_none()
             && discover.page.is_none()
             && discover.min_liquidity_usd.is_none()
             && discover.min_volume_24h_usd.is_none()
+            && discover.enrichment_limit.is_none()
     );
     let token_args: TokenArgs = serde_json::from_value(json!({"token":token,"pool_id":null,"include_metadata":null,"security":null,"include_holders":null,"refresh":null})).unwrap();
     assert!(token_args.pool_id.is_none() && token_args.include_metadata.is_none());
@@ -191,7 +193,7 @@ fn mock_body(path: &str) -> Value {
     let token = "0x1111111111111111111111111111111111111111";
     let other = "0x2222222222222222222222222222222222222222";
     let pool = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let pool_resource = json!({"type":"pool","id":format!("robinhood_{pool}"),"attributes":{"address":pool,"name":"EXAMPLE / USDG","base_token_price_usd":"0.123456789012345678901234567890123456","quote_token_price_usd":"1","reserve_in_usd":"100000","pool_created_at":"2026-09-17T00:00:00Z","price_change_percentage":{"m5":"1","h1":"2","h6":"3","h24":"4"},"volume_usd":{"m5":"5","h1":"6","h6":"7","h24":"8"},"transactions":{"m5":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h1":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h6":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h24":{"buys":1,"sells":2,"buyers":1,"sellers":2}}},"relationships":{"base_token":{"data":{"type":"token","id":format!("robinhood_{token}")}},"quote_token":{"data":{"type":"token","id":format!("robinhood_{other}")}},"dex":{"data":{"type":"dex","id":"example-dex"}}}});
+    let pool_resource = json!({"type":"pool","id":format!("robinhood_{pool}"),"attributes":{"address":pool,"name":"EXAMPLE / USDG","base_token_price_usd":"0.123456789012345678901234567890123456","quote_token_price_usd":"1","reserve_in_usd":"100000","fdv_usd":"1000","market_cap_usd":"750","pool_created_at":"2026-09-17T00:00:00Z","price_change_percentage":{"m5":"1","h1":"2","h6":"3","h24":"4"},"volume_usd":{"m5":"5","h1":"6","h6":"7","h24":"8"},"transactions":{"m5":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h1":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h6":{"buys":1,"sells":2,"buyers":1,"sellers":2},"h24":{"buys":1,"sells":2,"buyers":1,"sellers":2}}},"relationships":{"base_token":{"data":{"type":"token","id":format!("robinhood_{token}")}},"quote_token":{"data":{"type":"token","id":format!("robinhood_{other}")}},"dex":{"data":{"type":"dex","id":"example-dex"}}}});
     let included = json!([
         {"type":"token","id":format!("robinhood_{token}"),"attributes":{"address":token,"symbol":"EX","name":"Example","decimals":18}},
         {"type":"token","id":format!("robinhood_{other}"),"attributes":{"address":other,"symbol":"USDG","name":"USDG","decimals":6}},
@@ -311,6 +313,97 @@ fn ctx_without_secrets(name: &str) -> DynToolCallCtx {
     context
 }
 
+fn pagination_mock_app() -> HooditApp {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let pools = (1_u8..=20)
+        .map(|index| {
+            let pool = format!("0x{index:064x}");
+            let token = format!("0x{index:040x}");
+            json!({
+                "type":"pool",
+                "id":format!("robinhood_{pool}"),
+                "attributes":{
+                    "address":pool,"name":format!("TOKEN{index} / USDG"),
+                    "base_token_price_usd":"1","quote_token_price_usd":"1",
+                    "reserve_in_usd":"1000","fdv_usd":"2000","market_cap_usd":"1500",
+                    "pool_created_at":"2026-09-17T00:00:00Z",
+                    "volume_usd":{"h24":"100"},
+                    "transactions":{"h24":{"buys":10,"sells":5,"buyers":8,"sellers":4}}
+                },
+                "relationships":{
+                    "base_token":{"data":{"type":"token","id":format!("robinhood_{token}")}},
+                    "quote_token":{"data":{"type":"token","id":"robinhood_0x9999999999999999999999999999999999999999"}},
+                    "dex":{"data":{"type":"dex","id":"example-dex"}}
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut included = (1_u8..=20)
+        .map(|index| {
+            let token = format!("0x{index:040x}");
+            json!({"type":"token","id":format!("robinhood_{token}"),"attributes":{"address":token,"symbol":format!("T{index}"),"name":format!("Token {index}"),"decimals":18}})
+        })
+        .collect::<Vec<_>>();
+    included.push(json!({"type":"token","id":"robinhood_0x9999999999999999999999999999999999999999","attributes":{"address":"0x9999999999999999999999999999999999999999","symbol":"USDG","name":"USDG","decimals":6}}));
+    included.push(json!({"type":"dex","id":"example-dex","attributes":{"name":"Example DEX"}}));
+    let body = serde_json::to_vec(&json!({"data":pools,"included":included})).unwrap();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request).unwrap();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    let runtime = Runtime::fixture(
+        Client::new(),
+        ProviderOrigins {
+            gecko: base.clone(),
+            goplus: base.clone(),
+            coingecko: base.clone(),
+            blockscout: base.clone(),
+            lifi: base,
+        },
+    );
+    HooditApp::with_runtime(runtime)
+}
+
+#[test]
+fn discovery_cursor_resumes_inside_a_page_for_non_screened_feeds() {
+    let app = pagination_mock_app();
+    let input = json!({"feed":"new","limit":3,"max_pages":2});
+    let first = DiscoverPools::run(
+        &app,
+        serde_json::from_value(input.clone()).unwrap(),
+        ctx("hoodit_discover_pools"),
+    )
+    .unwrap();
+    let cursor = first["data"]["pagination"]["next_cursor"].as_str().unwrap();
+    assert_eq!(first["data"]["pagination"]["next_page"], Value::Null);
+    assert_eq!(first["data"]["coverage"]["stop_reason"], "result_limit");
+    assert_eq!(first["data"]["coverage"]["scanned"], 3);
+
+    let mut continuation_input = input;
+    continuation_input["cursor"] = Value::String(cursor.into());
+    let second = DiscoverPools::run(
+        &app,
+        serde_json::from_value(continuation_input).unwrap(),
+        ctx("hoodit_discover_pools"),
+    )
+    .unwrap();
+    assert_ne!(
+        first["data"]["pools"][0]["pool_id"],
+        second["data"]["pools"][0]["pool_id"]
+    );
+    assert_eq!(second["data"]["pools"].as_array().unwrap().len(), 3);
+    assert_eq!(second["data"]["source_feed"], "new");
+    assert_eq!(second["data"]["pagination"]["start_page"], 1);
+    assert_eq!(second["data"]["pagination"]["start_offset"], 3);
+    assert_eq!(second["data"]["coverage"]["scanned"], 3);
+}
+
 #[test]
 fn emits_one_success_envelope_for_every_tool() {
     let app = mock_app();
@@ -340,6 +433,12 @@ fn emits_one_success_envelope_for_every_tool() {
     assert_eq!(
         cases[0]["output"]["data"]["pagination"]["next_page"],
         Value::Null
+    );
+    assert_eq!(cases[1]["output"]["data"]["source_feed"], "trending");
+    assert_eq!(cases[1]["output"]["data"]["pools"][0]["fdv_usd"], "1000");
+    assert_eq!(
+        cases[1]["output"]["data"]["pools"][0]["market_cap_usd"],
+        "750"
     );
     assert_eq!(
         cases[2]["output"]["data"]["metadata"]["description"],

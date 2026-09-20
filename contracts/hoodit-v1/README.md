@@ -1,4 +1,4 @@
-# Hoodit v1.2.0 tool contracts
+# Hoodit v1.3.0 tool contracts
 
 This bundle is the canonical public contract for Hoodit’s two skill-owned, nine read-only tools on Robinhood Chain (`4663`). Market reads use GeckoTerminal, security enrichment uses GeckoTerminal and GoPlus, and native ETH/USD mapping uses CoinGecko. Wallet inventory and exact balances use Blockscout’s free authenticated API. Optional quote samples use read-only LI.FI quotes; actual swaps remain in the inherited host execution flow.
 
@@ -8,6 +8,12 @@ This bundle is the canonical public contract for Hoodit’s two skill-owned, nin
 - `hoodit_get_portfolio` accepts an opaque `cursor` instead of `page`/`page_size`, consumes one Blockscout provider page, and includes native ETH only initially. Its first-page cursor is nullable because strict model tool schemas require every declared property; later pages accept only an exact returned continuation.
 - Portfolio reads default to balances only (`include_quotes=false`). Requested valuation is limited to 20 non-USDG quote attempts and a 30-second overall deadline. Unscheduled holdings remain visible with `budget_exhausted` or `deadline_exceeded`.
 - A response contains at most 50 ERC-20 rows plus initial native ETH. Complete-wallet totals require an initial page with no continuation and a successful native read.
+
+## Amendments in 1.3.0
+
+- Discovery now exposes verified market-cap and observed-price filters, independent transaction/buy/sell windows, richer sorting, selectable screened source feeds, and resumable cursors on every feed.
+- Cursors preserve unprocessed rows when a result or conditional security-enrichment limit is reached. Responses distinguish raw scanned rows from security-enriched candidates.
+- Pool normalization retains provider FDV and verified market-cap fields. Unknown market cap is never replaced with FDV.
 
 ## Amendments in 1.2.0
 

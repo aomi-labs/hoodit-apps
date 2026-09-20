@@ -81,10 +81,19 @@ pub struct DiscoverFilters {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub volume_window: Option<String>,
-    /// Base token fully diluted valuation in USD. Requires enrichment.
+    /// Base token fully diluted valuation in USD from the pool record.
     #[serde(default)]
     #[schemars(with = "Option<DecimalRange>")]
     pub fdv_usd: Option<DecimalRange>,
+    /// Verified base-token market capitalization in USD. Unknown values fail
+    /// this filter and are never replaced with FDV.
+    #[serde(default)]
+    #[schemars(with = "Option<DecimalRange>")]
+    pub market_cap_usd: Option<DecimalRange>,
+    /// Observed base-token pool price in USD.
+    #[serde(default)]
+    #[schemars(with = "Option<DecimalRange>")]
+    pub price_usd: Option<DecimalRange>,
     /// Pool age in hours at evaluation time.
     #[serde(default)]
     #[schemars(with = "Option<CountRange>")]
@@ -117,6 +126,19 @@ pub struct DiscoverFilters {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub activity_window: Option<String>,
+    /// Transaction-count window. Overrides activity_window; omit for its
+    /// value, or h24 when both are omitted.
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    pub transactions_window: Option<String>,
+    /// Buy and buyer-count window. Overrides activity_window.
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    pub buys_window: Option<String>,
+    /// Sell and seller-count window. Overrides activity_window.
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    pub sells_window: Option<String>,
     /// Minimum GeckoTerminal score. Unknown scores fail this filter.
     #[serde(default)]
     #[schemars(with = "Option<String>")]
@@ -165,6 +187,11 @@ pub struct DiscoverArgs {
     #[serde(default)]
     #[schemars(with = "String", extend("enum" = ["trending", "new", "top_volume", "top_activity", "screened"], "default" = "trending"))]
     pub feed: Option<String>,
+    /// Provider feed to scan when feed=screened. Use new for launch-age
+    /// screens, or trending, top_volume, or top_activity as appropriate.
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    pub source_feed: Option<String>,
     /// Ranking window for trending and screened feeds. Omit for 24h.
     #[serde(default)]
     #[schemars(with = "String", extend("enum" = ["5m", "1h", "6h", "24h"], "default" = "24h"))]
@@ -187,7 +214,7 @@ pub struct DiscoverArgs {
     pub filters: Option<DiscoverFilters>,
     /// Result ordering within the scanned candidates.
     #[serde(default)]
-    #[schemars(with = "String", extend("enum" = ["feed", "liquidity", "volume_24h", "created_at", "price_change"], "default" = "feed"))]
+    #[schemars(with = "String", extend("enum" = ["feed", "liquidity", "volume", "volume_24h", "transactions", "buys", "sells", "created_at", "price_change", "fdv", "market_cap", "price"], "default" = "feed"))]
     pub sort: Option<String>,
     /// Sort direction within the scanned candidate set. Omit for descending.
     #[serde(default)]
@@ -197,15 +224,22 @@ pub struct DiscoverArgs {
     #[serde(default)]
     #[schemars(with = "u8", range(min = 1, max = 20), extend("default" = 10))]
     pub limit: Option<u8>,
-    /// Maximum raw provider pages to scan, from 1 through 3. Omit for 1.
+    /// Maximum raw provider pages to scan in this call, from 1 through 3.
+    /// Continue more deeply with the returned cursor.
     #[serde(default)]
     #[schemars(with = "u8", range(min = 1, max = 3), extend("default" = 1))]
     pub max_pages: Option<u8>,
+    /// Maximum security/metadata candidates to enrich in this call. Omit for
+    /// 8. A cursor resumes before any unprocessed candidate.
+    #[serde(default)]
+    #[schemars(with = "u8", range(min = 1, max = 8), extend("default" = 8))]
+    pub enrichment_limit: Option<u8>,
     /// Keep at most one pool per base token across continuation pages.
     #[serde(default)]
     #[schemars(with = "bool", extend("default" = false))]
     pub deduplicate_tokens: Option<bool>,
-    /// Opaque screened continuation. It is bound to the normalized query.
+    /// Opaque continuation supported by every feed. It is bound to the full
+    /// normalized query and resumes within a provider page when necessary.
     #[serde(default)]
     #[schemars(
         with = "Option<String>",
@@ -224,7 +258,8 @@ pub struct DiscoverArgs {
 struct ScreenCursor {
     v: u8,
     query: String,
-    next_page: u8,
+    page: u8,
+    offset: u8,
     seen_tokens: Vec<String>,
 }
 
@@ -249,14 +284,33 @@ impl DynAomiTool for DiscoverPools {
                 false,
             ));
         }
-        if args.cursor.is_some() && feed != "screened" {
+        let start_page = invalid_argument!(validate_page(args.page));
+        if args.cursor.is_some() && start_page != 1 {
             return Ok(model::error(
                 "INVALID_ARGUMENT",
-                "cursor is supported only by the screened feed",
+                "page must be omitted or 1 when cursor is supplied",
                 false,
             ));
         }
-        let start_page = invalid_argument!(validate_page(args.page));
+        let source_feed = if feed == "screened" {
+            args.source_feed.as_deref().unwrap_or("trending")
+        } else {
+            if args.source_feed.is_some() {
+                return Ok(model::error(
+                    "INVALID_ARGUMENT",
+                    "source_feed is supported only when feed=screened",
+                    false,
+                ));
+            }
+            feed
+        };
+        if !["trending", "new", "top_volume", "top_activity"].contains(&source_feed) {
+            return Ok(model::error(
+                "INVALID_ARGUMENT",
+                "unsupported source_feed",
+                false,
+            ));
+        }
         let legacy_liquidity = invalid_argument!(model::decimal(
             args.min_liquidity_usd.as_deref().unwrap_or("0")
         ));
@@ -271,9 +325,16 @@ impl DynAomiTool for DiscoverPools {
         if ![
             "feed",
             "liquidity",
+            "volume",
             "volume_24h",
+            "transactions",
+            "buys",
+            "sells",
             "created_at",
             "price_change",
+            "fdv",
+            "market_cap",
+            "price",
         ]
         .contains(&sort)
         {
@@ -305,15 +366,18 @@ impl DynAomiTool for DiscoverPools {
                 false,
             ));
         }
-        if feed != "screened" && max_pages != 1 {
+        let enrichment_limit = args.enrichment_limit.unwrap_or(8);
+        if !(1..=8).contains(&enrichment_limit) {
             return Ok(model::error(
                 "INVALID_ARGUMENT",
-                "max_pages greater than one requires feed=screened",
+                "enrichment_limit must be 1 to 8",
                 false,
             ));
         }
 
         let query = query_fingerprint(
+            feed,
+            source_feed,
             duration,
             &legacy_liquidity,
             &legacy_volume,
@@ -322,15 +386,22 @@ impl DynAomiTool for DiscoverPools {
             direction,
             limit,
             max_pages,
+            enrichment_limit,
             args.deduplicate_tokens.unwrap_or(false),
         );
-        let (mut page, mut seen_tokens) = match args.cursor.as_deref() {
+        let (mut page, mut offset, mut seen_tokens) = match args.cursor.as_deref() {
             Some(cursor) => match decode_cursor(cursor, &query) {
-                Ok(cursor) => (cursor.next_page, cursor.seen_tokens.into_iter().collect()),
+                Ok(cursor) => (
+                    cursor.page,
+                    cursor.offset,
+                    cursor.seen_tokens.into_iter().collect(),
+                ),
                 Err(message) => return Ok(model::error("INVALID_ARGUMENT", &message, false)),
             },
-            None => (start_page, HashSet::new()),
+            None => (start_page, 0, HashSet::new()),
         };
+        let pagination_start_page = page;
+        let pagination_start_offset = offset;
 
         let runtime = app.runtime()?;
         let gecko = Gecko::new(&runtime);
@@ -343,50 +414,73 @@ impl DynAomiTool for DiscoverPools {
         let mut unknown_exclusions = 0usize;
         let mut duplicate_exclusions = 0usize;
         let mut pages_scanned = 0u8;
-        let mut last_page_full = false;
         let requires_enrichment = needs_enrichment(&filters);
-        let enrichment_cap = if requires_enrichment { 4 } else { 0 };
+        let requires_gecko_metadata = needs_gecko_metadata(&filters);
+        let requires_goplus = needs_goplus(&filters);
+        let enrichment_cap = if requires_gecko_metadata {
+            enrichment_limit.min(10_u8.saturating_sub(max_pages))
+        } else {
+            enrichment_limit
+        };
+        let mut continuation = None;
+        let mut stop_reason = "provider_exhausted";
 
-        while page <= 10 && pages_scanned < max_pages && candidates.len() < limit as usize {
-            let upstream_feed = if feed == "screened" { "trending" } else { feed };
-            let response = match gecko.discover(upstream_feed, duration, page, &mut read) {
+        'scan: while page <= 10 && pages_scanned < max_pages {
+            let response = match gecko.discover(source_feed, duration, page, &mut read) {
                 Ok(response) => response,
                 Err(error) if pages_scanned == 0 => return Ok(provider_error(error)),
-                Err(_) => break,
+                Err(_) => {
+                    continuation = Some((page, offset));
+                    stop_reason = "provider_error";
+                    break;
+                }
             };
             pages_scanned += 1;
             let included = included_map(&response);
             let rows = response_rows(&response);
-            last_page_full = rows.len() >= 20;
-            scanned += rows.len();
-            for row in &rows {
+            let page_full = rows.len() >= 20;
+            let skip = usize::from(offset).min(rows.len());
+            for (index, row) in rows.iter().enumerate().skip(skip) {
+                scanned += 1;
                 let mut candidate = pool(row, &included);
                 if !pool_matches(&candidate, &filters, &legacy_liquidity, &legacy_volume) {
                     continue;
                 }
                 cheap_matches += 1;
                 let token = model::string(&candidate, &["base_token", "id"]);
-                if args.deduplicate_tokens.unwrap_or(false)
+                let deduplicate = args.deduplicate_tokens.unwrap_or(false);
+                if deduplicate
                     && token
                         .as_ref()
-                        .is_some_and(|token| !seen_tokens.insert(token.clone()))
+                        .is_some_and(|token| seen_tokens.contains(token))
                 {
                     duplicate_exclusions += 1;
                     continue;
                 }
+                if requires_enrichment && enriched >= usize::from(enrichment_cap) {
+                    continuation = Some((page, index as u8));
+                    stop_reason = "enrichment_limit";
+                    break 'scan;
+                }
+                if deduplicate && let Some(token) = token.as_ref() {
+                    seen_tokens.insert(token.clone());
+                }
                 if requires_enrichment {
-                    if enriched >= enrichment_cap {
-                        unknown_exclusions += 1;
-                        continue;
-                    }
                     let Some(token) = token else {
                         unknown_exclusions += 1;
                         continue;
                     };
                     enriched += 1;
-                    let token_response = gecko.token(&token, &mut read).ok();
-                    let gecko_info = gecko.metadata(&token, &mut read).ok();
-                    let goplus_info = goplus.token_security(&token, &mut read).ok();
+                    let gecko_info = if requires_gecko_metadata {
+                        gecko.metadata(&token, &mut read).ok()
+                    } else {
+                        None
+                    };
+                    let goplus_info = if requires_goplus {
+                        goplus.token_security(&token, &mut read).ok()
+                    } else {
+                        None
+                    };
                     let (security, ownership, coverage) = normalize_security(
                         &token,
                         gecko_info.as_ref(),
@@ -395,7 +489,6 @@ impl DynAomiTool for DiscoverPools {
                         false,
                     );
                     let enrichment = json!({
-                        "market":token_response.as_ref().and_then(|value|response_rows(value).into_iter().next()).and_then(|value|value.get("attributes").cloned()),
                         "metadata":gecko_info.as_ref().and_then(|value|response_rows(value).into_iter().next()).and_then(|value|value.get("attributes").cloned()),
                         "security":security,
                         "ownership":ownership,
@@ -409,11 +502,31 @@ impl DynAomiTool for DiscoverPools {
                 }
                 candidates.push(candidate);
                 if candidates.len() >= limit as usize {
-                    break;
+                    let next_offset = index + 1;
+                    continuation = if next_offset < rows.len() {
+                        Some((page, next_offset as u8))
+                    } else if page_full && page < 10 {
+                        Some((page + 1, 0))
+                    } else {
+                        None
+                    };
+                    stop_reason = "result_limit";
+                    break 'scan;
                 }
             }
             page += 1;
-            if !last_page_full {
+            offset = 0;
+            if !page_full {
+                stop_reason = "provider_exhausted";
+                break;
+            }
+            if pages_scanned >= max_pages {
+                continuation = (page <= 10).then_some((page, 0));
+                stop_reason = if continuation.is_some() {
+                    "page_limit"
+                } else {
+                    "provider_exhausted"
+                };
                 break;
             }
         }
@@ -426,59 +539,57 @@ impl DynAomiTool for DiscoverPools {
         } else if direction == "asc" {
             candidates.reverse();
         }
-        candidates.truncate(limit as usize);
         let returned = candidates.len();
-        let has_more = last_page_full && page <= 10;
-        let next_cursor = if feed == "screened" && has_more {
-            Some(encode_cursor(ScreenCursor {
-                v: 1,
+        let next_cursor = continuation.map(|(page, offset)| {
+            encode_cursor(ScreenCursor {
+                v: 2,
                 query: query.clone(),
-                next_page: page,
+                page,
+                offset,
                 seen_tokens: seen_tokens.into_iter().take(200).collect(),
-            }))
-        } else {
-            None
-        };
-        let next_page = if feed != "screened" && has_more {
-            Some(page)
-        } else {
-            None
-        };
+            })
+        });
+        let next_page = continuation.and_then(|(page, offset)| (offset == 0).then_some(page));
         let mut warnings = read.warnings;
-        if feed == "screened" && has_more {
+        if continuation.is_some() {
             warnings.push(model::warning(
                 "SCAN_BOUND_REACHED",
-                "The strict screen stopped at its disclosed page or result bound; continue with next_cursor",
+                "Discovery stopped at its disclosed page, result, or enrichment bound; continue with next_cursor using the same query",
             ));
         }
-        if requires_enrichment && cheap_matches > enriched {
+        if stop_reason == "enrichment_limit" {
             warnings.push(model::warning(
                 "ENRICHMENT_BOUND_REACHED",
-                "Security-enriched screening stopped at its disclosed candidate bound; no filter was relaxed",
+                "Security-enriched screening stopped before the next candidate; the cursor preserves that unprocessed candidate and no filter was relaxed",
             ));
         }
         Ok(model::ok(
             json!({
                 "feed":feed,
-                "duration":if feed=="new"||feed=="top_volume"||feed=="top_activity"{None}else{Some(duration)},
+                "source_feed":source_feed,
+                "duration":if source_feed=="new"||source_feed=="top_volume"||source_feed=="top_activity"{None}else{Some(duration)},
                 "min_liquidity_usd":legacy_liquidity,
                 "min_volume_24h_usd":legacy_volume,
                 "filters":filters,
                 "sort":sort,
                 "direction":direction,
                 "pools":candidates,
-                "pagination":{"start_page":start_page,"pages_scanned":pages_scanned,"returned":returned,"next_page":next_page,"next_cursor":next_cursor},
+                "pagination":{"start_page":pagination_start_page,"start_offset":pagination_start_offset,"pages_scanned":pages_scanned,"returned":returned,"next_page":next_page,"next_cursor":next_cursor},
                 "coverage":{
-                    "mode":if feed=="screened"{"free_bounded_scan"}else{"single_provider_page"},
+                    "mode":"free_paginated_scan",
+                    "source_feed":source_feed,
                     "scanned":scanned,
                     "cheap_filter_matches":cheap_matches,
-                    "enriched":enriched,
-                    "enrichment_cap":enrichment_cap,
+                    "security_enrichment_required":requires_enrichment,
+                    "security_enriched":enriched,
+                    "security_enrichment_limit":if requires_enrichment{Some(enrichment_cap)}else{None},
+                    "requested_security_enrichment_limit":if requires_enrichment{Some(enrichment_limit)}else{None},
                     "unknown_or_failed_required_exclusions":unknown_exclusions,
                     "duplicate_exclusions":duplicate_exclusions,
                     "ranked_within_scanned_candidates":true,
                     "filters_relaxed":false,
-                    "stop_reason":if returned>=limit as usize{"result_limit"}else if has_more{"scan_bound"}else{"provider_exhausted"}
+                    "continuation_preserves_unprocessed_candidates":true,
+                    "stop_reason":stop_reason
                 }
             }),
             read.sources,
@@ -493,6 +604,9 @@ fn validate_filters(filters: &DiscoverFilters) -> Result<(), String> {
         filters.volume_window.as_deref(),
         filters.price_change_window.as_deref(),
         filters.activity_window.as_deref(),
+        filters.transactions_window.as_deref(),
+        filters.buys_window.as_deref(),
+        filters.sells_window.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -510,6 +624,8 @@ fn validate_filters(filters: &DiscoverFilters) -> Result<(), String> {
         filters.liquidity_usd.as_ref(),
         filters.volume_usd.as_ref(),
         filters.fdv_usd.as_ref(),
+        filters.market_cap_usd.as_ref(),
+        filters.price_usd.as_ref(),
         filters.top10_concentration_pct.as_ref(),
     ]
     .into_iter()
@@ -652,8 +768,15 @@ fn pool_matches(
     let change_window = filters.price_change_window.as_deref().unwrap_or("h1");
     let change = model::string(pool, &["windows", change_window, "base_price_change_pct"]);
     let activity_window = filters.activity_window.as_deref().unwrap_or("h24");
-    let count =
-        |name: &str| model::get(pool, &["windows", activity_window, name]).and_then(Value::as_u64);
+    let transactions_window = filters
+        .transactions_window
+        .as_deref()
+        .unwrap_or(activity_window);
+    let buys_window = filters.buys_window.as_deref().unwrap_or(activity_window);
+    let sells_window = filters.sells_window.as_deref().unwrap_or(activity_window);
+    let count = |window: &str, name: &str| {
+        model::get(pool, &["windows", window, name]).and_then(Value::as_u64)
+    };
     let age = model::string(pool, &["created_at"])
         .and_then(|created| chrono::DateTime::parse_from_rfc3339(&created).ok())
         .map(|created| (Utc::now().timestamp() - created.timestamp()).max(0) as u64 / 3600);
@@ -661,6 +784,15 @@ fn pool_matches(
         && pair_matches
         && decimal_in(liquidity.clone(), filters.liquidity_usd.as_ref())
         && decimal_in(volume.clone(), filters.volume_usd.as_ref())
+        && decimal_in(model::string(pool, &["fdv_usd"]), filters.fdv_usd.as_ref())
+        && decimal_in(
+            model::string(pool, &["market_cap_usd"]),
+            filters.market_cap_usd.as_ref(),
+        )
+        && decimal_in(
+            model::string(pool, &["base_price_usd"]),
+            filters.price_usd.as_ref(),
+        )
         && signed_decimal_in(change, filters.price_change_pct.as_ref())
         && decimal_in(
             liquidity,
@@ -678,32 +810,44 @@ fn pool_matches(
         )
         && count_in(age, filters.pool_age_hours.as_ref())
         && count_in(
-            count("buys")
-                .zip(count("sells"))
+            count(transactions_window, "buys")
+                .zip(count(transactions_window, "sells"))
                 .map(|(buys, sells)| buys + sells),
             filters.transactions.as_ref(),
         )
-        && count_in(count("buys"), filters.buys.as_ref())
-        && count_in(count("sells"), filters.sells.as_ref())
-        && count_in(count("buyers"), filters.buyers.as_ref())
-        && count_in(count("sellers"), filters.sellers.as_ref())
+        && count_in(count(buys_window, "buys"), filters.buys.as_ref())
+        && count_in(count(sells_window, "sells"), filters.sells.as_ref())
+        && count_in(count(buys_window, "buyers"), filters.buyers.as_ref())
+        && count_in(count(sells_window, "sellers"), filters.sellers.as_ref())
 }
 
-fn needs_enrichment(filters: &DiscoverFilters) -> bool {
+fn needs_gecko_metadata(filters: &DiscoverFilters) -> bool {
     filters.min_gt_score.is_some()
         || filters
             .honeypot
             .as_deref()
             .is_some_and(|value| value != "any")
-        || filters.max_buy_tax_pct.is_some()
-        || filters.max_sell_tax_pct.is_some()
         || filters.require_gt_verified.unwrap_or(false)
-        || filters.require_open_source.unwrap_or(false)
         || filters.holder_count.is_some()
         || filters.top10_concentration_pct.is_some()
         || filters.require_social_presence.unwrap_or(false)
         || filters.require_coingecko_listed.unwrap_or(false)
-        || filters.fdv_usd.is_some()
+}
+
+fn needs_goplus(filters: &DiscoverFilters) -> bool {
+    filters
+        .honeypot
+        .as_deref()
+        .is_some_and(|value| value != "any")
+        || filters.max_buy_tax_pct.is_some()
+        || filters.max_sell_tax_pct.is_some()
+        || filters.require_open_source.unwrap_or(false)
+        || filters.holder_count.is_some()
+        || filters.top10_concentration_pct.is_some()
+}
+
+fn needs_enrichment(filters: &DiscoverFilters) -> bool {
+    needs_gecko_metadata(filters) || needs_goplus(filters)
 }
 
 fn enrichment_matches(enrichment: &Value, filters: &DiscoverFilters) -> bool {
@@ -759,7 +903,6 @@ fn enrichment_matches(enrichment: &Value, filters: &DiscoverFilters) -> bool {
     });
     let listed = model::string(enrichment, &["metadata", "coingecko_coin_id"])
         .is_some_and(|value| !value.is_empty());
-    let fdv = model::string(enrichment, &["market", "fdv_usd"]);
     decimal_in(gt_score, minimum_score.as_ref())
         && honeypot_matches
         && decimal_in(
@@ -781,7 +924,6 @@ fn enrichment_matches(enrichment: &Value, filters: &DiscoverFilters) -> bool {
         && decimal_in(top10, filters.top10_concentration_pct.as_ref())
         && (!filters.require_social_presence.unwrap_or(false) || social)
         && (!filters.require_coingecko_listed.unwrap_or(false) || listed)
-        && decimal_in(fdv, filters.fdv_usd.as_ref())
 }
 
 fn compare(
@@ -793,14 +935,46 @@ fn compare(
     if sort == "created_at" {
         return model::string(left, &["created_at"]).cmp(&model::string(right, &["created_at"]));
     }
+    let activity_window = filters.activity_window.as_deref().unwrap_or("h24");
+    let transactions_window = filters
+        .transactions_window
+        .as_deref()
+        .unwrap_or(activity_window);
+    let buys_window = filters.buys_window.as_deref().unwrap_or(activity_window);
+    let sells_window = filters.sells_window.as_deref().unwrap_or(activity_window);
+    let count = |value: &Value, window: &str, name: &str| {
+        model::get(value, &["windows", window, name]).and_then(Value::as_u64)
+    };
+    if sort == "transactions" {
+        let total = |value: &Value| {
+            count(value, transactions_window, "buys")
+                .zip(count(value, transactions_window, "sells"))
+                .map(|(buys, sells)| buys + sells)
+        };
+        return total(left).cmp(&total(right));
+    }
+    if sort == "buys" {
+        return count(left, buys_window, "buys").cmp(&count(right, buys_window, "buys"));
+    }
+    if sort == "sells" {
+        return count(left, sells_window, "sells").cmp(&count(right, sells_window, "sells"));
+    }
     let path: Vec<&str> = match sort {
         "liquidity" => vec!["liquidity_usd"],
+        "volume" => vec![
+            "windows",
+            filters.volume_window.as_deref().unwrap_or("h24"),
+            "volume_usd",
+        ],
         "volume_24h" => vec!["windows", "h24", "volume_usd"],
         "price_change" => vec![
             "windows",
             filters.price_change_window.as_deref().unwrap_or("h1"),
             "base_price_change_pct",
         ],
+        "fdv" => vec!["fdv_usd"],
+        "market_cap" => vec!["market_cap_usd"],
+        "price" => vec!["base_price_usd"],
         _ => vec!["liquidity_usd"],
     };
     let decimal = |value: &Value| {
@@ -813,6 +987,8 @@ fn compare(
 
 #[allow(clippy::too_many_arguments)]
 fn query_fingerprint(
+    feed: &str,
+    source_feed: &str,
     duration: &str,
     legacy_liquidity: &str,
     legacy_volume: &str,
@@ -821,11 +997,14 @@ fn query_fingerprint(
     direction: &str,
     limit: u8,
     max_pages: u8,
+    enrichment_limit: u8,
     deduplicate_tokens: bool,
 ) -> String {
     let normalized = serde_json::to_string(&json!({
-        "duration":duration,"legacy_liquidity":legacy_liquidity,"legacy_volume":legacy_volume,
+        "feed":feed,"source_feed":source_feed,"duration":duration,
+        "legacy_liquidity":legacy_liquidity,"legacy_volume":legacy_volume,
         "filters":filters,"sort":sort,"direction":direction,"limit":limit,"max_pages":max_pages,
+        "enrichment_limit":enrichment_limit,
         "deduplicate_tokens":deduplicate_tokens
     }))
     .unwrap_or_default();
@@ -847,9 +1026,10 @@ fn decode_cursor(raw: &str, query: &str) -> Result<ScreenCursor, String> {
         .map_err(|_| "invalid discovery cursor")?;
     let cursor: ScreenCursor =
         serde_json::from_slice(&bytes).map_err(|_| "invalid discovery cursor")?;
-    if cursor.v != 1
+    if cursor.v != 2
         || cursor.query != query
-        || !(1..=10).contains(&cursor.next_page)
+        || !(1..=10).contains(&cursor.page)
+        || cursor.offset > 20
         || cursor.seen_tokens.len() > 200
         || cursor
             .seen_tokens
@@ -878,26 +1058,82 @@ mod tests {
     #[test]
     fn cursor_is_bound_to_query_and_dedup_state() {
         let cursor = encode_cursor(ScreenCursor {
-            v: 1,
+            v: 2,
             query: "abc".into(),
-            next_page: 2,
+            page: 2,
+            offset: 7,
             seen_tokens: vec!["0x1111111111111111111111111111111111111111".into()],
         });
-        assert_eq!(decode_cursor(&cursor, "abc").unwrap().next_page, 2);
+        let decoded = decode_cursor(&cursor, "abc").unwrap();
+        assert_eq!(decoded.page, 2);
+        assert_eq!(decoded.offset, 7);
         assert!(decode_cursor(&cursor, "different").is_err());
     }
 
     #[test]
-    fn empty_social_metadata_and_missing_fdv_fail_strict_filters() {
+    fn empty_social_metadata_fails_strict_filter() {
         let filters = DiscoverFilters {
             require_social_presence: Some(true),
+            ..Default::default()
+        };
+        let enrichment = json!({"metadata":{"websites":[],"twitter_handle":""}});
+        assert!(!enrichment_matches(&enrichment, &filters));
+    }
+
+    #[test]
+    fn verified_market_cap_and_independent_activity_windows_are_strict() {
+        let filters = DiscoverFilters {
+            market_cap_usd: Some(DecimalRange {
+                min: Some("100000".into()),
+                max: Some("200000".into()),
+            }),
+            transactions: Some(CountRange {
+                min: Some(10),
+                max: None,
+            }),
+            transactions_window: Some("h1".into()),
+            buys: Some(CountRange {
+                min: Some(5),
+                max: None,
+            }),
+            buys_window: Some("m5".into()),
+            sells: Some(CountRange {
+                min: Some(3),
+                max: None,
+            }),
+            sells_window: Some("h6".into()),
+            ..Default::default()
+        };
+        let pool = json!({
+            "market_cap_usd":"150000",
+            "liquidity_usd":"100",
+            "windows":{
+                "h24":{"volume_usd":"100"},
+                "h1":{"buys":6,"sells":4},
+                "m5":{"buys":5},
+                "h6":{"sells":3}
+            }
+        });
+        assert!(pool_matches(&pool, &filters, "0", "0"));
+
+        let mut unknown_market_cap = pool;
+        unknown_market_cap["market_cap_usd"] = Value::Null;
+        assert!(!pool_matches(&unknown_market_cap, &filters, "0", "0"));
+    }
+
+    #[test]
+    fn pool_valuations_do_not_require_security_enrichment() {
+        let filters = DiscoverFilters {
             fdv_usd: Some(DecimalRange {
+                min: Some("1".into()),
+                max: None,
+            }),
+            market_cap_usd: Some(DecimalRange {
                 min: Some("1".into()),
                 max: None,
             }),
             ..Default::default()
         };
-        let enrichment = json!({"metadata":{"websites":[],"twitter_handle":""},"market":{}});
-        assert!(!enrichment_matches(&enrichment, &filters));
+        assert!(!needs_enrichment(&filters));
     }
 }

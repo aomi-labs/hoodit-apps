@@ -87,7 +87,7 @@ fn envelope(
     warnings: Vec<Value>,
     error: Option<Value>,
 ) -> Value {
-    json!({"schema_version":"1.2.0","status":status,"data":data,"meta":meta(sources,warnings),"error":error})
+    json!({"schema_version":"1.3.0","status":status,"data":data,"meta":meta(sources,warnings),"error":error})
 }
 pub fn token(
     id: &str,
