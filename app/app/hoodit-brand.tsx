@@ -41,15 +41,19 @@ const SUGGESTIONS = [
   },
 ];
 
+/** The composer is a contenteditable box; its placeholder is a sibling span
+ * rendered only while the box is empty. */
+const composerSelector = '.aui-composer-input [role="textbox"]';
+
 function patchText(root: HTMLElement) {
-  root
-    .querySelectorAll<HTMLTextAreaElement>("textarea.aui-composer-input")
-    .forEach((input) => {
-      const want = input.closest(".aui-thread-welcome-root")
-        ? WELCOME_PLACEHOLDER
-        : REPLY_PLACEHOLDER;
-      if (input.placeholder !== want) input.placeholder = want;
-    });
+  root.querySelectorAll<HTMLElement>(composerSelector).forEach((input) => {
+    const placeholder = input.previousElementSibling;
+    if (!(placeholder instanceof HTMLElement)) return;
+    const want = input.closest(".aui-thread-welcome-root")
+      ? WELCOME_PLACEHOLDER
+      : REPLY_PLACEHOLDER;
+    if (placeholder.textContent !== want) placeholder.textContent = want;
+  });
   root
     .querySelectorAll<HTMLElement>(".aui-thread-welcome-title")
     .forEach((title) => {
@@ -66,17 +70,12 @@ function patchText(root: HTMLElement) {
     });
 }
 
-/** Fill the widget's composer through React's own value setter, then send. */
+/** Fill the widget's composer the way typing would, so its own input
+ * handler syncs the text into the thread, then send. */
 function sendPrompt(root: HTMLElement, prompt: string) {
-  const input = root.querySelector<HTMLTextAreaElement>(
-    "textarea.aui-composer-input",
-  );
+  const input = root.querySelector<HTMLElement>(composerSelector);
   if (!input) return;
-  const setValue = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    "value",
-  )?.set;
-  setValue?.call(input, prompt);
+  input.textContent = prompt;
   input.dispatchEvent(new Event("input", { bubbles: true }));
   requestAnimationFrame(() => {
     const send = root.querySelector<HTMLButtonElement>(
@@ -136,12 +135,7 @@ export function HooditBrand({
     };
     sync();
     const observer = new MutationObserver(sync);
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["placeholder"],
-    });
+    observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [frameRef]);
 

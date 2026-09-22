@@ -1,6 +1,7 @@
 const routes = [
   { path: /^chat$/, methods: ["POST"] },
   { path: /^chat\/[^/]+$/, methods: ["GET"] },
+  { path: /^chat\/[^/]+\/stream$/, methods: ["GET"] },
   { path: /^chat\/[^/]+\/interrupt$/, methods: ["POST"] },
   { path: /^chat\/[^/]+\/actions\/[^/]+\/result$/, methods: ["POST"] },
   { path: /^sessions$/, methods: ["GET"] },

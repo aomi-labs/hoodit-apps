@@ -1,7 +1,11 @@
 /* ---------- Hoodit theme for the Aomi widget ----------
    The widget reads shadcn-style tokens plus its own --aomi-* set from :root.
-   Everything here is scoped to .hoodit-app so the landing page is untouched. */
-.hoodit-app {
+   Everything here is scoped to .hoodit-app so the landing page is untouched.
+   The widget's account settings follow the browser colour scheme by toggling
+   a `.dark` wrapper around itself; Hoodit is cream-only, so the same tokens
+   are re-declared under that wrapper to outrank the widget's dark palette. */
+.hoodit-app,
+.hoodit-app .dark {
   --font-geist-sans: var(--font-body);
   --font-geist-mono: var(--font-mono);
   --aomi-font-wordmark: var(--font-display);

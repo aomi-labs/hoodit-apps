@@ -57,6 +57,19 @@ test("polling carries query and the same authorization without a body", async ()
   assert.equal((await relayAgentRequest(request("chat/test-session?cursor=test-cursor&wait=1000", {}, "GET"))).status, 200);
 });
 
+test("streams reply events with the caller's accept header and the upstream content type", async () => {
+  mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(url, "https://chat.aomi.dev/v1/agent/chat/test-session/stream?cursor=test-cursor&wait=30000");
+    assert.equal(init.headers.get("accept"), "text/event-stream");
+    assert.equal(init.body, undefined);
+    return new Response("event: message\ndata: {}\n\n", { headers: { "content-type": "text/event-stream" } });
+  });
+  const response = await relayAgentRequest(request("chat/test-session/stream?cursor=test-cursor&wait=30000", { accept: "text/event-stream" }, "GET"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/event-stream");
+  assert.equal(await response.text(), "event: message\ndata: {}\n\n");
+});
+
 test("preserves authorization rejection, strips upstream cookies", async () => {
   mock.method(globalThis, "fetch", async () => Response.json({ error: "invalid_token" }, { status: 401, headers: { "set-cookie": "test-only" } }));
   const response = await relayAgentRequest(request());

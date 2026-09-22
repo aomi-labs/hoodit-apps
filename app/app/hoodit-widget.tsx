@@ -38,6 +38,9 @@ export default function HooditWidget() {
       walletPosition="footer"
       clientOptions={clientOptions}
       controlBarProps={{ hideApp: true }}
+      // Hoodit pins its own cream palette in app.css, so the widget's
+      // light/dark toggle would have no visible effect.
+      features={{ theme: false }}
       // Guest credentials are page-scoped: never revive a conversation
       // owned by a previous anonymous identity after a reload.
       persistThread={false}
